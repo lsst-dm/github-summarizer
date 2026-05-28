@@ -249,7 +249,7 @@ from pathlib import Path
 
 import pytest
 
-from lsst.github_summarizer.config import Config, ConfigError, load_config
+from lsst.github_summarizer.config import ConfigError, load_config
 
 
 def test_load_minimal_config_applies_defaults(tmp_path: Path) -> None:
