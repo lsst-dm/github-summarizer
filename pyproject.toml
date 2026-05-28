@@ -21,8 +21,21 @@ classifiers = [
 ]
 keywords=["lsst"]
 dependencies = [
+    "httpx",
+    "pydantic",
+    "pyyaml",
+    "click",
 ]
 dynamic = ["version"]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "types-pyyaml",
+]
+
+[project.scripts]
+github-summarizer = "lsst.github_summarizer.cli:main"
 
 [project.urls]
 "Homepage" = "https://github.com/lsst-dm/github-summarizer"
@@ -74,6 +87,7 @@ where = ["python"]
         showcontent = true
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.pydocstyle]
 convention = "numpy"
@@ -136,6 +150,9 @@ select = [
 extend-select = [
     "RUF100", # Warn about unused noqa
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["lsst", "astshim", "starlink"]
