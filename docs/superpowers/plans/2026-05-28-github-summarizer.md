@@ -725,8 +725,9 @@ def test_auto_topic_ignores_listed_topics() -> None:
 
 
 def test_auto_topic_largest_cluster_wins_for_multi_topic_repo() -> None:
-    # 'shared' covers 4 repos, 'small' covers 3 (including the overlap repo).
-    # The overlap repo must land in the larger 'shared' cluster.
+    # 'shared' covers 4 repos, 'small' covers 4 (including the overlap repo d).
+    # The overlap repo must land in the larger/earlier 'shared' cluster, and
+    # 'small' still forms from its three remaining members.
     config = Config(
         org="lsst", auto_group_by_topic=AutoGroupConfig(enabled=True, min_repos=3)
     )
@@ -737,6 +738,7 @@ def test_auto_topic_largest_cluster_wins_for_multi_topic_repo() -> None:
         _repo("d", topics=["shared", "small"]),
         _repo("e", topics=["small"]),
         _repo("f", topics=["small"]),
+        _repo("g", topics=["small"]),
     ]
     result = Grouper(config).assign(repos)
     assert result["d"] == ("shared", "auto-topic:shared")
@@ -826,7 +828,7 @@ class Grouper:
         return result
 
     def _match_explicit(self, repo: Repository) -> Assignment | None:
-        """Match override, then topic, then glob, then regex (in that order)."""
+        """Match override, then topic, glob, regex (in precedence order)."""
         config = self._config
         if repo.name in config.overrides:
             return (config.overrides[repo.name].group, "override")
