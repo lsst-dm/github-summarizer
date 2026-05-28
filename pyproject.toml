@@ -193,10 +193,6 @@ warn_redundant_casts = true
 plugins = "pydantic.mypy"
 
 [[tool.mypy.overrides]]
-module = ["fsspec.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
 module = ["lsst.github_summarizer"]
 ignore_missing_imports = false
 ignore_errors = false
