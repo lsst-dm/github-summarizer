@@ -17,7 +17,7 @@ easy to extend (new fields, new output formats) and easy to reorganize later.
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | GraphQL client | `httpx` (sync) + hand-written query, behind a swappable `GitHubSource` interface | Minimal deps, full control over pagination/rate limits, easy to mock. Source boundary lets us swap backends later. |
-| Data models | Pydantic throughout (records + config) | Free YAML validation with friendly errors; trivial JSON output. Matches the `pydantic.mypy` plugin already in `pyproject.toml`. |
+| Data models | Pydantic throughout; raw `Repository` separated from derived `RepositorySummary` | Free YAML validation with friendly errors; trivial JSON output. Matches the `pydantic.mypy` plugin already in `pyproject.toml`. Keeping derived data out of the raw record means a summary is never half-populated. |
 | CLI surface | `github-summarizer` group + `report` subcommand | Matches repo name; leaves room for future subcommands. |
 | Name-pattern grouping | Both `glob:` (documented default) and `regex:`, glob case-insensitive | Globs are friendlier and auto-anchored for prefix patterns like `DMTN-*`; regex retained for power cases and GOALS compatibility. |
 | Auto-topic grouping | Cluster leftover repos by shared topic; enabled by default, `min_repos = 3` | Related repos surface as a group instead of all landing in Uncategorized. Default lives in one field so it is trivial to flip. |
@@ -31,7 +31,7 @@ This is a prototype; modules may be reorganized as it matures.
 ```
 python/lsst/github_summarizer/
   __init__.py        # version only
-  models.py          # Pydantic: Repository (enriched record), ActivityStatus
+  models.py          # Pydantic: Repository (raw), RepositorySummary (derived), ActivityStatus
   config.py          # Pydantic: Config + sub-models; load_config()
   source.py          # GitHubSource Protocol + GitHubGraphQLSource (httpx); token resolution
   activity.py        # classify_activity(repo, cfg, *, now) -> ActivityStatus
@@ -48,15 +48,17 @@ CLI parses args
   -> load_config(path)                       (config.py)
   -> resolve_token(flag, env, gh, git)       (source.py)
   -> GitHubSource.fetch_repositories(org)    (source.py)   [swappable boundary]
-  -> for each repo:
-        activity.classify_activity(...)      (activity.py)
-        Grouper.assign(...)                  (grouping.py)
-  -> report.render_<format>(repos, config, generated_at)   (report.py)
+  -> filter out archived/disabled unless --include-* given (orchestrator.py)
+  -> classify_activity + Grouper.assign
+        -> list[RepositorySummary]           (orchestrator.py)
+  -> report.render_<format>(summaries, config, generated_at)   (report.py)
   -> write to --output or stdout             (cli.py)
 ```
 
 Data flows one direction through pure stages. Everything downstream of the
-source is independent of GitHub/GraphQL/httpx.
+source is independent of GitHub/GraphQL/httpx. The orchestrator builds each
+`RepositorySummary` from a `Repository` by calling `classify_activity` and the
+`Grouper` (which needs the full set for the auto-topic pass).
 
 ## 5. Data models (`models.py`)
 
@@ -70,7 +72,7 @@ class ActivityStatus(StrEnum):
     DISABLED = "disabled"
 
 class Repository(BaseModel):
-    # raw fields from the API
+    """Raw repository data as returned by the source. No derived fields."""
     name: str
     url: str
     description: str | None = None
@@ -80,15 +82,22 @@ class Repository(BaseModel):
     is_archived: bool = False
     is_disabled: bool = False
     default_branch: str | None = None
-    # enriched fields (filled by the pipeline)
-    activity: ActivityStatus | None = None
-    group: str | None = None
-    grouping_reason: str | None = None
+
+class RepositorySummary(BaseModel):
+    """A repository plus the data derived by the pipeline."""
+    repo: Repository
+    activity: ActivityStatus
+    group: str
+    grouping_reason: str
 ```
 
-One model carries data through the whole pipeline. The source populates raw
-fields; the orchestrator sets `activity`, `group`, `grouping_reason`. Single
-model keeps JSON/CSV rendering simple via `model_dump`.
+Two models keep concerns separated: `Repository` is the pure, untouched record
+the source produces; `RepositorySummary` is what the pipeline derives from it.
+Because the derived fields are always computed, they are required on
+`RepositorySummary` (not `Optional`), so a summary is never half-populated. The
+source returns `list[Repository]`; the orchestrator returns
+`list[RepositorySummary]`. Both serialize cleanly via `model_dump`
+(`RepositorySummary` nests the repo, which JSON/CSV rendering flattens).
 
 ## 6. Configuration (`config.py`)
 
@@ -185,8 +194,11 @@ Precedence:
 
 ## 8. Grouping (`grouping.py`)
 
-`Grouper(config).assign(repos)` sets `(group, grouping_reason)` per repo by
-first-match precedence:
+`Grouper(config).assign(repos: list[Repository]) -> dict[str, tuple[str, str]]`
+returns the `(group, grouping_reason)` for each repo (keyed by name). It takes
+the full list because the auto-topic pass needs to see all ungrouped repos at
+once. The orchestrator combines this with the activity status to build each
+`RepositorySummary`. Precedence is first-match:
 
 1. **Override** — name in `overrides:` -> `reason = "override"`
 2. **Topic rule** — repo topic in a group's `topics:` -> `reason = "topic:<topic>"`
@@ -213,13 +225,13 @@ cluster, deterministically. Pure function over the repo list; no mocks needed.
 
 ## 9. Report writers (`report.py`)
 
-Three pure functions over `list[Repository]`, `Config`, and a `generated_at`
-timestamp, each returning `str`:
+Three pure functions over `list[RepositorySummary]`, `Config`, and a
+`generated_at` timestamp, each returning `str`:
 
-- `render_json` — `model_dump` of the repo list plus a summary block; stable
-  field order.
-- `render_csv` — one row per repo; columns are the raw + enriched fields;
-  topics joined with `;`.
+- `render_json` — `model_dump` of the summaries plus a summary-counts block;
+  stable field order.
+- `render_csv` — one row per repo; columns are the raw + derived fields
+  (flattened from the nested `repo`); topics joined with `;`.
 - `render_markdown` — full GOALS structure:
   1. Title + generation timestamp
   2. Summary counts: total, active, warm, quiet, dormant, archived, disabled
@@ -272,15 +284,20 @@ a clear API error.
 github-summarizer report --config FILE
     [--org ORG] [--token TOKEN]
     [--format markdown|csv|json] [--output PATH]
-    [--include-archived/--no-include-archived]
-    [--include-disabled/--no-include-disabled]
+    [--include-archived] [--include-disabled]
     [--appendix] [--verbose]
 ```
 
 `report` loads config, applies flag overrides, resolves the token, fetches,
-enriches, renders, and writes to `--output` or stdout. Archived/disabled repos
-are always classified (the summary counts need them); the `--include-*` flags
-control only whether they appear in the per-group tables (default: included).
+enriches, renders, and writes to `--output` or stdout.
+
+**Archived and disabled repos are excluded by default** — they hold little
+interest for the typical report. `--include-archived` / `--include-disabled`
+(both default off) opt them back in. Filtering happens in the orchestrator
+right after fetch, so excluded repos drop out of the entire report, summary
+counts included; when a flag is given, those repos reappear in both the counts
+and the tables. (The corresponding `ARCHIVED` / `DISABLED` activity statuses
+are therefore only ever seen when the matching flag is set.)
 
 ## 12. Error handling
 
@@ -299,7 +316,10 @@ clean `stderr` message + nonzero exit code. Full tracebacks only under
 - **config:** valid load; bad regex fails fast; defaults applied; malformed
   YAML raises `ConfigError`.
 - **report:** markdown structure + summary counts on a small fixture; CSV and
-  JSON shape.
+  JSON shape (including the flattened nested `repo`).
+- **orchestrator:** archived/disabled excluded by default and re-included when
+  the matching flag is set (affecting both counts and tables), against a fake
+  `GitHubSource`.
 - **source:** pagination and token resolution against a fake httpx transport
   (`respx` or stdlib monkeypatch) and mocked `subprocess` — no network.
 
@@ -315,5 +335,5 @@ clean `stderr` message + nonzero exit code. Full tracebacks only under
 
 Commit counts, open issue/PR counts, license, branch protection, CODEOWNERS
 presence, CI workflow presence, release recency, ownership/team metadata, repo
-health score. The pipeline + single-model design makes each an additive change
-(query field + model field + optional column).
+health score. The pipeline design makes each an additive change (query field +
+`Repository` field + optional column).
