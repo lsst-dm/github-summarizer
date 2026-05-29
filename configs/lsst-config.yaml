@@ -1,0 +1,43 @@
+org: lsst
+
+activity:
+  active_days: 90
+  warm_days: 180
+  quiet_days: 365
+
+groups:
+  - name: Pipelines
+    topics: [pipelines]
+    description: LSST Science Pipelines
+  - name: Rubin Tech Notes
+    glob: ["RTN-*"]
+  - name: Camera Tech Notes
+    glob: ["CTN-*"]
+  - name: Data Management Statements of Work
+    glob: ["dm-sow-*"]
+  - name: System Performance Statements of Work
+    glob: ["sp-sow-*"]
+  - name: lsst.io Web Sites
+    glob: ["*_lsst_io"]
+  - name: Data Management Construction Change Controlled Documents
+    glob: ["LDM-*"]
+  - name: Construction System Engineering Change Controlled Documents
+    glob: ["LSE-*"]
+  - name: Rubin Operations Change Controlled Documents
+    glob: ["RDO-*"]
+  - name: Test Data Packages for Pipelines
+    glob: ["testdata_*"]
+  - name: CI Packages for Pipelines
+    glob: ["ci_*"]
+  - name: Documentation
+    topics: [documentation, docs]
+
+auto_group_by_topic:
+  enabled: true
+  min_repos: 3
+  ignore_topics: []
+
+overrides:
+  special-repo-name:
+    group: Pipelines
+    notes: Manual override
