@@ -44,7 +44,7 @@ def _cli_context(verbose: bool) -> Iterator[None]:
         sys.exit(1)
 
 
-@click.group()
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
 def main() -> None:
     """Summarize the repositories in a GitHub organization."""
 

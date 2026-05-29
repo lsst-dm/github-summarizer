@@ -28,6 +28,20 @@ def _patch_backend(monkeypatch: pytest.MonkeyPatch, repos: list[Repository]) -> 
     )
 
 
+def test_h_alias_on_group() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["-h"])
+    assert result.exit_code == 0
+    assert "Usage" in result.output
+
+
+def test_h_alias_on_subcommand() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["report", "-h"])
+    assert result.exit_code == 0
+    assert "Usage" in result.output
+
+
 def test_report_json_to_stdout(monkeypatch: pytest.MonkeyPatch, config_file: Path) -> None:
     _patch_backend(monkeypatch, [Repository(name="afw", url="https://github.com/lsst/afw")])
     runner = CliRunner()
