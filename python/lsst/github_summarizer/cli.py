@@ -115,8 +115,11 @@ def report(
 
         now = datetime.now(UTC)
         source: GitHubSource
+        fetched_at: datetime | None = None
         if from_raw is not None:
-            source = RawFileSource(load_raw(from_raw))
+            raw = load_raw(from_raw)
+            source = RawFileSource(raw)
+            fetched_at = raw.fetched_at
         else:
             source = GitHubGraphQLSource(resolve_token(token), timeout=timeout)
         summaries = build_summaries(
@@ -133,7 +136,7 @@ def report(
         elif output_format == "csv":
             text = render_csv(summaries, config, now)
         else:
-            text = render_markdown(summaries, config, now, include_appendix=appendix)
+            text = render_markdown(summaries, config, now, fetched_at=fetched_at, include_appendix=appendix)
 
         if output is not None:
             output.write_text(text)

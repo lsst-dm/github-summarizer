@@ -116,6 +116,7 @@ def render_markdown(
     config: Config,
     generated_at: datetime,
     *,
+    fetched_at: datetime | None = None,
     include_appendix: bool = False,
 ) -> str:
     """Render summaries as a grouped markdown report.
@@ -128,6 +129,10 @@ def render_markdown(
         Configuration providing group descriptions and the fallback group.
     generated_at : `datetime.datetime`
         Report generation timestamp.
+    fetched_at : `datetime.datetime` or `None`, optional
+        When the underlying data was fetched from GitHub. When provided (e.g.
+        rendering from a cache), a note is added so cache staleness is
+        visible. Defaults to `None`, which omits the note.
     include_appendix : `bool`, optional
         Append a full raw-inventory table. Defaults to `False`.
 
@@ -141,15 +146,11 @@ def render_markdown(
     for summary in summaries:
         by_group.setdefault(summary.group, []).append(summary)
 
-    lines: list[str] = [
-        f"# GitHub Repository Report: {config.org}",
-        "",
-        f"_Generated {generated_at.isoformat()}_",
-        "",
-        "## Summary",
-        "",
-        f"- Total repositories: {len(summaries)}",
-    ]
+    lines: list[str] = [f"# GitHub Repository Report: {config.org}", ""]
+    lines.append(f"_Generated {generated_at.isoformat()}_")
+    if fetched_at is not None:
+        lines.append(f"_Data fetched {fetched_at.isoformat()}_")
+    lines += ["", "## Summary", "", f"- Total repositories: {len(summaries)}"]
     counts = _summary_counts(summaries)
     for status in ActivityStatus:
         lines.append(f"- {status.value.capitalize()}: {counts[status]}")

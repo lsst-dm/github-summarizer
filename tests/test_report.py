@@ -84,3 +84,15 @@ def test_render_markdown_appendix_optional() -> None:
 def test_render_markdown_groups_sorted_fallback_last() -> None:
     output = render_markdown(_summaries(), _config(), GENERATED)
     assert output.index("## Pipelines") < output.index("## Uncategorized")
+
+
+def test_render_markdown_omits_fetched_line_by_default() -> None:
+    output = render_markdown(_summaries(), _config(), GENERATED)
+    assert "Data fetched" not in output
+
+
+def test_render_markdown_shows_fetched_line_when_provided() -> None:
+    fetched = datetime(2026, 5, 1, 9, 0, tzinfo=UTC)
+    output = render_markdown(_summaries(), _config(), GENERATED, fetched_at=fetched)
+    assert "Data fetched" in output
+    assert fetched.isoformat() in output

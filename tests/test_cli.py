@@ -124,6 +124,22 @@ def test_report_from_raw_is_offline(
     assert data["repositories"][0]["repo"]["name"] == "afw"
 
 
+def test_report_from_raw_markdown_shows_fetched(config_file: Path, tmp_path: Path) -> None:
+    out = tmp_path / "raw.json"
+    fetched = datetime(2026, 5, 1, tzinfo=UTC)
+    save_raw(
+        out,
+        [Repository(name="afw", url="https://github.com/lsst/afw")],
+        org="lsst",
+        fetched_at=fetched,
+    )
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["report", "--config", str(config_file), "--from-raw", str(out)])
+    assert result.exit_code == 0, result.output
+    assert "Data fetched" in result.output
+    assert fetched.isoformat() in result.output
+
+
 def test_report_from_raw_corrupt_exits_nonzero(config_file: Path, tmp_path: Path) -> None:
     bad = tmp_path / "bad.json"
     bad.write_text("{not json")
