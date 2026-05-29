@@ -4,17 +4,44 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
 import click
 
+from .cache import CacheError
 from .config import ConfigError, load_config
 from .orchestrator import build_summaries
 from .report import render_csv, render_json, render_markdown
 from .source import GitHubError, GitHubGraphQLSource, resolve_token
 
 __all__ = ["main"]
+
+_LOG = logging.getLogger(__name__)
+
+
+@contextmanager
+def _cli_context(verbose: bool) -> Iterator[None]:
+    """Configure logging and turn known errors into clean CLI failures.
+
+    Parameters
+    ----------
+    verbose : `bool`
+        Enable debug logging and re-raise (full traceback) on known errors.
+    """
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.WARNING,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+    try:
+        yield
+    except (ConfigError, GitHubError, CacheError) as exc:
+        if verbose:
+            raise
+        click.echo(f"error: {exc}", err=True)
+        sys.exit(1)
 
 
 @click.group()
@@ -73,11 +100,7 @@ def report(
     verbose: bool,
 ) -> None:
     """Generate a repository report for the configured organization."""
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.WARNING,
-        format="%(levelname)s %(name)s: %(message)s",
-    )
-    try:
+    with _cli_context(verbose):
         config = load_config(config_path)
         if org:
             config = config.model_copy(update={"org": org})
@@ -92,9 +115,7 @@ def report(
             include_archived=include_archived,
             include_disabled=include_disabled,
         )
-        logging.getLogger(__name__).info(
-            "Generated report for %d repositories in %r", len(summaries), config.org
-        )
+        _LOG.info("Generated report for %d repositories in %r", len(summaries), config.org)
 
         if output_format == "json":
             text = render_json(summaries, config, now)
@@ -107,8 +128,3 @@ def report(
             output.write_text(text)
         else:
             click.echo(text, nl=False)
-    except (ConfigError, GitHubError) as exc:
-        if verbose:
-            raise
-        click.echo(f"error: {exc}", err=True)
-        sys.exit(1)
