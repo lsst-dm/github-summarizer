@@ -136,7 +136,15 @@ def report(
         elif output_format == "csv":
             text = render_csv(summaries, config, now)
         else:
-            text = render_markdown(summaries, config, now, fetched_at=fetched_at, include_appendix=appendix)
+            text = render_markdown(
+                summaries,
+                config,
+                now,
+                fetched_at=fetched_at,
+                include_archived=include_archived,
+                include_disabled=include_disabled,
+                include_appendix=appendix,
+            )
 
         if output is not None:
             output.write_text(text)

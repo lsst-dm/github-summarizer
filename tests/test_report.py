@@ -86,6 +86,25 @@ def test_render_markdown_groups_sorted_fallback_last() -> None:
     assert output.index("## Pipelines") < output.index("## Uncategorized")
 
 
+def test_render_markdown_omits_archived_disabled_counts_by_default() -> None:
+    output = render_markdown(_summaries(), _config(), GENERATED)
+    assert "Active:" in output
+    assert "Archived:" not in output
+    assert "Disabled:" not in output
+
+
+def test_render_markdown_shows_archived_disabled_counts_when_included() -> None:
+    output = render_markdown(
+        _summaries(),
+        _config(),
+        GENERATED,
+        include_archived=True,
+        include_disabled=True,
+    )
+    assert "Archived:" in output
+    assert "Disabled:" in output
+
+
 def test_render_markdown_sorts_repos_case_insensitively() -> None:
     summaries = [
         _summary("DMTN-095", "Uncategorized", ActivityStatus.ACTIVE),

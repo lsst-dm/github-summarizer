@@ -117,6 +117,8 @@ def render_markdown(
     generated_at: datetime,
     *,
     fetched_at: datetime | None = None,
+    include_archived: bool = False,
+    include_disabled: bool = False,
     include_appendix: bool = False,
 ) -> str:
     """Render summaries as a grouped markdown report.
@@ -133,6 +135,15 @@ def render_markdown(
         When the underlying data was fetched from GitHub. When provided (e.g.
         rendering from a cache), a note is added so cache staleness is
         visible. Defaults to `None`, which omits the note.
+    include_archived : `bool`, optional
+        Whether archived repositories were included. Controls whether the
+        archived count appears in the summary; when `False` the count is
+        omitted rather than reported as zero (which would misleadingly
+        suggest there are none). Defaults to `False`.
+    include_disabled : `bool`, optional
+        Whether disabled repositories were included, controlling the disabled
+        summary count in the same way as ``include_archived``. Defaults to
+        `False`.
     include_appendix : `bool`, optional
         Append a full raw-inventory table. Defaults to `False`.
 
@@ -152,7 +163,20 @@ def render_markdown(
         lines.append(f"_Data fetched {fetched_at.isoformat()}_")
     lines += ["", "## Summary", "", f"- Total repositories: {len(summaries)}"]
     counts = _summary_counts(summaries)
-    for status in ActivityStatus:
+    # Date-based statuses are always reported. Archived/disabled are only
+    # shown when included; otherwise a zero would imply there are none when
+    # they were simply filtered out.
+    reported = [
+        ActivityStatus.ACTIVE,
+        ActivityStatus.WARM,
+        ActivityStatus.QUIET,
+        ActivityStatus.DORMANT,
+    ]
+    if include_archived:
+        reported.append(ActivityStatus.ARCHIVED)
+    if include_disabled:
+        reported.append(ActivityStatus.DISABLED)
+    for status in reported:
         lines.append(f"- {status.value.capitalize()}: {counts[status]}")
     lines.append("")
 
