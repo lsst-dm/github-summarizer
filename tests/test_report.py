@@ -86,6 +86,15 @@ def test_render_markdown_groups_sorted_fallback_last() -> None:
     assert output.index("## Pipelines") < output.index("## Uncategorized")
 
 
+def test_render_markdown_sorts_repos_case_insensitively() -> None:
+    summaries = [
+        _summary("DMTN-095", "Uncategorized", ActivityStatus.ACTIVE),
+        _summary("dmtn-000", "Uncategorized", ActivityStatus.ACTIVE),
+    ]
+    output = render_markdown(summaries, _config(), GENERATED)
+    assert output.index("dmtn-000") < output.index("DMTN-095")
+
+
 def test_render_markdown_omits_fetched_line_by_default() -> None:
     output = render_markdown(_summaries(), _config(), GENERATED)
     assert "Data fetched" not in output

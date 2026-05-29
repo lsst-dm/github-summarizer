@@ -190,7 +190,7 @@ def _render_group(
 def _render_table(lines: list[str], summaries: list[RepositorySummary]) -> None:
     lines.append(_TABLE_HEADER)
     lines.append(_TABLE_DIVIDER)
-    for summary in sorted(summaries, key=lambda s: s.repo.name):
+    for summary in sorted(summaries, key=lambda s: s.repo.name.lower()):
         repo = summary.repo
         last_push = repo.pushed_at.date().isoformat() if repo.pushed_at else ""
         lines.append(
