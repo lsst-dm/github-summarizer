@@ -53,15 +53,10 @@ class Grouper:
         return result
 
     def _match_explicit(self, repo: Repository) -> Assignment | None:
-        """Match override, then topic, glob, regex (in precedence order)."""
+        """Match override, glob, regex, then topic (in precedence order)."""
         config = self._config
         if repo.name in config.overrides:
             return (config.overrides[repo.name].group, "override")
-
-        for rule in config.groups:
-            for topic in rule.topics:
-                if topic in repo.topics:
-                    return (rule.name, f"topic:{topic}")
 
         for rule in config.groups:
             for pattern in rule.glob:
@@ -72,6 +67,11 @@ class Grouper:
             for pattern in rule.regex:
                 if re.search(pattern, repo.name):
                     return (rule.name, f"regex:{pattern}")
+
+        for rule in config.groups:
+            for topic in rule.topics:
+                if topic in repo.topics:
+                    return (rule.name, f"topic:{topic}")
 
         return None
 

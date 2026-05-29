@@ -25,7 +25,7 @@ def test_override_wins_over_everything() -> None:
     assert result["afw"] == ("Special", "override")
 
 
-def test_topic_beats_glob() -> None:
+def test_glob_beats_topic() -> None:
     config = Config(
         org="lsst",
         groups=[
@@ -35,7 +35,20 @@ def test_topic_beats_glob() -> None:
     )
     repo = _repo("afw", topics=["pipelines"])
     result = Grouper(config).assign([repo])
-    assert result["afw"] == ("Pipelines", "topic:pipelines")
+    assert result["afw"] == ("Tech Notes", "glob:afw*")
+
+
+def test_regex_beats_topic() -> None:
+    config = Config(
+        org="lsst",
+        groups=[
+            GroupRule(name="Documentation", topics=["documentation"]),
+            GroupRule(name="Change Controlled Documents", regex=["^RDO-[0-9]+$"]),
+        ],
+    )
+    repo = _repo("RDO-154", topics=["documentation"])
+    result = Grouper(config).assign([repo])
+    assert result["RDO-154"] == ("Change Controlled Documents", "regex:^RDO-[0-9]+$")
 
 
 def test_glob_is_case_insensitive() -> None:
