@@ -11,7 +11,7 @@ from pathlib import Path
 
 import click
 
-from .cache import CacheError
+from .cache import CacheError, save_raw
 from .config import ConfigError, load_config
 from .orchestrator import build_summaries
 from .report import render_csv, render_json, render_markdown
@@ -128,3 +128,51 @@ def report(
             output.write_text(text)
         else:
             click.echo(text, nl=False)
+
+
+@main.command()
+@click.option(
+    "--config",
+    "config_path",
+    required=True,
+    type=click.Path(exists=False, dir_okay=False, path_type=Path),
+    help="Path to the YAML configuration file.",
+)
+@click.option("--org", default=None, help="Override the organization in the config.")
+@click.option("--token", default=None, help="GitHub token (else discovered).")
+@click.option(
+    "--output",
+    required=True,
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Destination file for the raw repository data.",
+)
+@click.option(
+    "--timeout",
+    type=float,
+    default=30.0,
+    show_default=True,
+    help="HTTP timeout in seconds per request.",
+)
+@click.option(
+    "--verbose",
+    is_flag=True,
+    help="Enable debug logging and show full tracebacks on error.",
+)
+def fetch(
+    config_path: Path,
+    org: str | None,
+    token: str | None,
+    output: Path,
+    timeout: float,
+    verbose: bool,
+) -> None:
+    """Fetch raw repository data and save it for later reporting."""
+    with _cli_context(verbose):
+        config = load_config(config_path)
+        if org:
+            config = config.model_copy(update={"org": org})
+
+        source = GitHubGraphQLSource(resolve_token(token), timeout=timeout)
+        repos = source.fetch_repositories(config.org)
+        save_raw(output, repos, org=config.org, fetched_at=datetime.now(UTC))
+        _LOG.info("Saved %d repositories to %s", len(repos), output)
