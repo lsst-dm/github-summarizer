@@ -16,10 +16,8 @@ groups:
     glob: ["RTN-*"]
   - name: Camera Tech Notes
     glob: ["CTN-*"]
-  - name: Data Management Statements of Work
-    glob: ["dm-sow-*"]
-  - name: System Performance Statements of Work
-    glob: ["sp-sow-*"]
+  - name: Statements of Work
+    glob: ["dm-sow-*", "sp-sow-*", "*_sow"]
   - name: lsst.io Web Sites
     glob: ["*_lsst_io", "*.lsst.io"]
     topics: [website]
