@@ -41,7 +41,7 @@ groups:
 
 auto_group_by_topic:
   enabled: true
-  min_repos: 3
+  min_repos: 2
   ignore_topics: []
 
 overrides:
