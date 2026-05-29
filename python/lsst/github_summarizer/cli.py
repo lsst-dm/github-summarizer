@@ -347,9 +347,11 @@ def _report_conflicts(conflicts: tuple[MetadataChange, ...]) -> None:
 def _show_change(change: MetadataChange, *, stale: bool) -> None:
     """Display one metadata change."""
     prefix = "STALE " if stale else ""
+    topic_annotation = _topic_delta_annotation(change)
     click.echo(
         f"{prefix}{change.repo} {change.field.value}: "
         f"{_format_metadata_value(change.current)} -> {_format_metadata_value(change.desired)}"
+        f"{topic_annotation}"
     )
 
 
@@ -378,3 +380,25 @@ def _format_metadata_value(value: object) -> str:
     if value == "":
         return "(empty)"
     return str(value)
+
+
+def _topic_delta_annotation(change: MetadataChange) -> str:
+    """Summarize topic additions and removals for non-empty topic changes."""
+    if change.field is not MetadataField.TOPICS:
+        return ""
+    if not isinstance(change.current, tuple) or not isinstance(change.desired, tuple):
+        raise TypeError("topic change must have tuple metadata values")
+    if not change.current or not change.desired:
+        return ""
+
+    current = set(change.current)
+    desired = set(change.desired)
+    added = [topic for topic in change.desired if topic not in current]
+    removed = [topic for topic in change.current if topic not in desired]
+
+    notes: list[str] = []
+    if added:
+        notes.append(f'added "{", ".join(added)}"')
+    if removed:
+        notes.append(f'removed "{", ".join(removed)}"')
+    return f" [{'; '.join(notes)}]" if notes else ""

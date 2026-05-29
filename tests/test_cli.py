@@ -206,8 +206,43 @@ def test_apply_metadata_dry_run_does_not_update(
     )
     assert result.exit_code == 0, result.output
     assert "afw description" in result.output
-    assert "afw topics" in result.output
+    assert 'afw topics: pipelines -> pipelines;dm [added "dm"]' in result.output
     assert "Dry run" in result.output
+
+
+def test_apply_metadata_dry_run_shows_removed_topics(
+    monkeypatch: pytest.MonkeyPatch, config_file: Path, tmp_path: Path
+) -> None:
+    baseline = tmp_path / "baseline.csv"
+    edited = tmp_path / "edited.csv"
+    baseline.write_text("name,description,topics\nafw,,a;c;b\n")
+    edited.write_text("name,description,topics\nafw,,c\n")
+    _patch_backend(
+        monkeypatch,
+        [
+            Repository(
+                name="afw",
+                url="https://github.com/lsst/afw",
+                topics=["a", "c", "b"],
+            )
+        ],
+    )
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        [
+            "apply-metadata",
+            "--config",
+            str(config_file),
+            "--baseline",
+            str(baseline),
+            "--input",
+            str(edited),
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert 'afw topics: a;c;b -> c [removed "a, b"]' in result.output
 
 
 def test_apply_metadata_yes_updates_changed_fields(
