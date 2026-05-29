@@ -9,6 +9,9 @@ groups:
   - name: Pipelines
     topics: [pipelines]
     description: LSST Science Pipelines
+  - name: Pipeline Middleware
+    topics: [pipeline-middleware]
+    description: Software that the pipelines depend on to access data and execute.
   - name: Rubin Tech Notes
     glob: ["RTN-*"]
   - name: Camera Tech Notes
@@ -18,7 +21,8 @@ groups:
   - name: System Performance Statements of Work
     glob: ["sp-sow-*"]
   - name: lsst.io Web Sites
-    glob: ["*_lsst_io"]
+    glob: ["*_lsst_io", "*.lsst.io"]
+    topics: [website]
   - name: Data Management Construction Change Controlled Documents
     glob: ["LDM-*"]
   - name: Construction System Engineering Change Controlled Documents
@@ -27,10 +31,13 @@ groups:
     glob: ["RDO-*"]
   - name: Test Data Packages for Pipelines
     glob: ["testdata_*"]
+    topics: [testdata]
   - name: CI Packages for Pipelines
     glob: ["ci_*"]
+    topics: [pipelines-ci]
   - name: Documentation
     topics: [documentation, docs]
+    glob: ["LPM-*"]
 
 auto_group_by_topic:
   enabled: true
