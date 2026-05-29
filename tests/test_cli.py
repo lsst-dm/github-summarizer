@@ -161,3 +161,172 @@ def test_report_from_raw_corrupt_exits_nonzero(config_file: Path, tmp_path: Path
     result = runner.invoke(cli.main, ["report", "--config", str(config_file), "--from-raw", str(bad)])
     assert result.exit_code != 0
     assert "error:" in result.output
+
+
+def test_apply_metadata_dry_run_does_not_update(
+    monkeypatch: pytest.MonkeyPatch, config_file: Path, tmp_path: Path
+) -> None:
+    baseline = tmp_path / "baseline.csv"
+    edited = tmp_path / "edited.csv"
+    baseline.write_text("name,description,topics\nafw,old,pipelines\n")
+    edited.write_text("name,description,topics\nafw,new,pipelines;dm\n")
+    _patch_backend(
+        monkeypatch,
+        [
+            Repository(
+                name="afw",
+                url="https://github.com/lsst/afw",
+                description="old",
+                topics=["pipelines"],
+            )
+        ],
+    )
+
+    def boom_description(self: object, org: str, repo: str, description: str) -> None:
+        raise AssertionError("dry run must not update descriptions")
+
+    def boom_topics(self: object, org: str, repo: str, topics: list[str]) -> None:
+        raise AssertionError("dry run must not update topics")
+
+    monkeypatch.setattr(cli.GitHubGraphQLSource, "update_repository_description", boom_description)
+    monkeypatch.setattr(cli.GitHubGraphQLSource, "replace_repository_topics", boom_topics)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        [
+            "apply-metadata",
+            "--config",
+            str(config_file),
+            "--baseline",
+            str(baseline),
+            "--input",
+            str(edited),
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "afw description" in result.output
+    assert "afw topics" in result.output
+    assert "Dry run" in result.output
+
+
+def test_apply_metadata_yes_updates_changed_fields(
+    monkeypatch: pytest.MonkeyPatch, config_file: Path, tmp_path: Path
+) -> None:
+    baseline = tmp_path / "baseline.csv"
+    edited = tmp_path / "edited.csv"
+    baseline.write_text("name,description,topics\nafw,old,pipelines\n")
+    edited.write_text("name,description,topics\nafw,new,pipelines;dm\n")
+    _patch_backend(
+        monkeypatch,
+        [
+            Repository(
+                name="afw",
+                url="https://github.com/lsst/afw",
+                description="old",
+                topics=["pipelines"],
+            )
+        ],
+    )
+    descriptions: list[tuple[str, str, str]] = []
+    topics: list[tuple[str, str, list[str]]] = []
+
+    def update_description(self: object, org: str, repo: str, description: str) -> None:
+        descriptions.append((org, repo, description))
+
+    def replace_topics(self: object, org: str, repo: str, desired_topics: list[str]) -> None:
+        topics.append((org, repo, desired_topics))
+
+    monkeypatch.setattr(cli.GitHubGraphQLSource, "update_repository_description", update_description)
+    monkeypatch.setattr(cli.GitHubGraphQLSource, "replace_repository_topics", replace_topics)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        [
+            "apply-metadata",
+            "--config",
+            str(config_file),
+            "--baseline",
+            str(baseline),
+            "--input",
+            str(edited),
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert descriptions == [("lsst", "afw", "new")]
+    assert topics == [("lsst", "afw", ["pipelines", "dm"])]
+    assert "Applied 2" in result.output
+
+
+def test_apply_metadata_skips_stale_updates_by_default(
+    monkeypatch: pytest.MonkeyPatch, config_file: Path, tmp_path: Path
+) -> None:
+    baseline = tmp_path / "baseline.csv"
+    edited = tmp_path / "edited.csv"
+    baseline.write_text("name,description,topics\nafw,old,pipelines\n")
+    edited.write_text("name,description,topics\nafw,new,pipelines\n")
+    _patch_backend(
+        monkeypatch,
+        [Repository(name="afw", url="https://github.com/lsst/afw", description="live")],
+    )
+    descriptions: list[str] = []
+
+    def update_description(self: object, org: str, repo: str, description: str) -> None:
+        descriptions.append(description)
+
+    monkeypatch.setattr(cli.GitHubGraphQLSource, "update_repository_description", update_description)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        [
+            "apply-metadata",
+            "--config",
+            str(config_file),
+            "--baseline",
+            str(baseline),
+            "--input",
+            str(edited),
+            "--yes",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert descriptions == []
+    assert "stale" in result.output
+
+
+def test_apply_metadata_allow_stale_updates_conflict(
+    monkeypatch: pytest.MonkeyPatch, config_file: Path, tmp_path: Path
+) -> None:
+    baseline = tmp_path / "baseline.csv"
+    edited = tmp_path / "edited.csv"
+    baseline.write_text("name,description,topics\nafw,old,pipelines\n")
+    edited.write_text("name,description,topics\nafw,new,pipelines\n")
+    _patch_backend(
+        monkeypatch,
+        [Repository(name="afw", url="https://github.com/lsst/afw", description="live")],
+    )
+    descriptions: list[str] = []
+
+    def update_description(self: object, org: str, repo: str, description: str) -> None:
+        descriptions.append(description)
+
+    monkeypatch.setattr(cli.GitHubGraphQLSource, "update_repository_description", update_description)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        [
+            "apply-metadata",
+            "--config",
+            str(config_file),
+            "--baseline",
+            str(baseline),
+            "--input",
+            str(edited),
+            "--yes",
+            "--allow-stale",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert descriptions == ["new"]
+    assert "STALE afw description" in result.output

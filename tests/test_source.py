@@ -207,6 +207,50 @@ def test_rate_limit_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
     assert any("rate" in record.getMessage().lower() for record in caplog.records)
 
 
+def test_update_repository_description_uses_rest_api() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["url"] = str(request.url)
+        seen["body"] = request.read().decode()
+        return httpx.Response(200, json={})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    source = GitHubGraphQLSource("token", client=client)
+    source.update_repository_description("lsst", "afw", "new description")
+    assert seen["method"] == "PATCH"
+    assert seen["url"] == "https://api.github.com/repos/lsst/afw"
+    assert seen["body"] == '{"description":"new description"}'
+
+
+def test_replace_repository_topics_uses_rest_api() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["url"] = str(request.url)
+        seen["body"] = request.read().decode()
+        return httpx.Response(200, json={"names": ["dm", "pipelines"]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    source = GitHubGraphQLSource("token", client=client)
+    source.replace_repository_topics("lsst", "afw", ["dm", "pipelines"])
+    assert seen["method"] == "PUT"
+    assert seen["url"] == "https://api.github.com/repos/lsst/afw/topics"
+    assert seen["body"] == '{"names":["dm","pipelines"]}'
+
+
+def test_rest_update_errors_raise_github_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, text="not found")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    source = GitHubGraphQLSource("token", client=client)
+    with pytest.raises(GitHubError, match="404"):
+        source.update_repository_description("lsst", "missing", "new")
+
+
 def test_resolve_token_logs_source(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", "env-token")
     monkeypatch.delenv("GH_TOKEN", raising=False)

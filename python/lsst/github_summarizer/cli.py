@@ -8,14 +8,22 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import assert_never
 
 import click
 
 from .cache import CacheError, RawFileSource, load_raw, save_raw
 from .config import ConfigError, load_config
+from .metadata import (
+    MetadataChange,
+    MetadataError,
+    MetadataField,
+    load_metadata_csv,
+    plan_metadata_updates,
+)
 from .orchestrator import build_summaries
 from .report import render_csv, render_json, render_markdown
-from .source import GitHubError, GitHubGraphQLSource, GitHubSource, resolve_token
+from .source import GitHubError, GitHubGraphQLSource, GitHubMetadataUpdater, GitHubSource, resolve_token
 
 __all__ = ["main"]
 
@@ -37,7 +45,7 @@ def _cli_context(verbose: bool) -> Iterator[None]:
     )
     try:
         yield
-    except (ConfigError, GitHubError, CacheError) as exc:
+    except (ConfigError, GitHubError, CacheError, MetadataError) as exc:
         if verbose:
             raise
         click.echo(f"error: {exc}", err=True)
@@ -152,6 +160,117 @@ def report(
             click.echo(text, nl=False)
 
 
+@main.command("apply-metadata")
+@click.option(
+    "--config",
+    "config_path",
+    required=True,
+    type=click.Path(exists=False, dir_okay=False, path_type=Path),
+    help="Path to the YAML configuration file.",
+)
+@click.option("--org", default=None, help="Override the organization in the config.")
+@click.option("--token", default=None, help="GitHub token (else discovered).")
+@click.option(
+    "--baseline",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Original CSV report exported before spreadsheet edits.",
+)
+@click.option(
+    "--input",
+    "input_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Edited CSV report containing desired descriptions and topics.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show detected updates without changing GitHub.",
+)
+@click.option(
+    "--yes",
+    is_flag=True,
+    help="Apply safe updates without prompting.",
+)
+@click.option(
+    "--allow-stale",
+    is_flag=True,
+    help="Apply edits even when live GitHub metadata differs from the baseline CSV.",
+)
+@click.option(
+    "--timeout",
+    type=float,
+    default=30.0,
+    show_default=True,
+    help="HTTP timeout in seconds per request.",
+)
+@click.option(
+    "--verbose",
+    is_flag=True,
+    help="Enable debug logging and show full tracebacks on error.",
+)
+def apply_metadata(
+    config_path: Path,
+    org: str | None,
+    token: str | None,
+    baseline: Path,
+    input_path: Path,
+    dry_run: bool,
+    yes: bool,
+    allow_stale: bool,
+    timeout: float,
+    verbose: bool,
+) -> None:
+    """Apply edited CSV descriptions and topics to GitHub repositories."""
+    with _cli_context(verbose):
+        if dry_run and yes:
+            raise MetadataError("--dry-run and --yes cannot be used together")
+
+        config = load_config(config_path)
+        if org:
+            config = config.model_copy(update={"org": org})
+
+        baseline_rows = load_metadata_csv(baseline)
+        edited_rows = load_metadata_csv(input_path)
+        client = GitHubGraphQLSource(resolve_token(token), timeout=timeout)
+        current = client.fetch_repositories(config.org)
+        plan = plan_metadata_updates(baseline_rows, edited_rows, current)
+
+        _report_plan_skips(plan.missing_repositories, plan.already_current)
+        if plan.conflicts and not allow_stale:
+            _report_conflicts(plan.conflicts)
+
+        changes = list(plan.changes)
+        stale_changes = set(plan.conflicts)
+        if allow_stale:
+            changes.extend(plan.conflicts)
+
+        if not changes:
+            if not plan.conflicts and not plan.missing_repositories and not plan.already_current:
+                click.echo("No metadata changes detected.")
+            elif dry_run:
+                click.echo("Dry run: no GitHub metadata would be updated.")
+            return
+
+        applied = 0
+        skipped = 0
+        for change in changes:
+            _show_change(change, stale=change in stale_changes)
+            if dry_run:
+                continue
+            if not yes and not click.confirm("Apply this update?", default=False):
+                skipped += 1
+                continue
+            _apply_metadata_change(client, config.org, change)
+            applied += 1
+
+        if dry_run:
+            click.echo(f"Dry run: {len(changes)} GitHub metadata update(s) would be applied.")
+        else:
+            click.echo(f"Applied {applied} GitHub metadata update(s); skipped {skipped}.")
+
+
 @main.command()
 @click.option(
     "--config",
@@ -198,3 +317,64 @@ def fetch(
         repos = source.fetch_repositories(config.org)
         save_raw(output, repos, org=config.org, fetched_at=datetime.now(UTC))
         _LOG.info("Saved %d repositories to %s", len(repos), output)
+
+
+def _report_plan_skips(
+    missing_repositories: tuple[str, ...],
+    already_current: tuple[MetadataChange, ...],
+) -> None:
+    """Report skipped metadata plan entries."""
+    if missing_repositories:
+        click.echo(
+            "Skipped repository metadata edits missing from GitHub: " + ", ".join(missing_repositories)
+        )
+    if already_current:
+        click.echo(f"Skipped {len(already_current)} update(s) already present on GitHub.")
+
+
+def _report_conflicts(conflicts: tuple[MetadataChange, ...]) -> None:
+    """Report stale metadata conflicts."""
+    click.echo(f"Skipped {len(conflicts)} stale update(s); use --allow-stale to apply them anyway.")
+    for change in conflicts:
+        click.echo(
+            f"  {change.repo} {change.field.value}: baseline "
+            f"{_format_metadata_value(change.baseline)}; current "
+            f"{_format_metadata_value(change.current)}; desired "
+            f"{_format_metadata_value(change.desired)}"
+        )
+
+
+def _show_change(change: MetadataChange, *, stale: bool) -> None:
+    """Display one metadata change."""
+    prefix = "STALE " if stale else ""
+    click.echo(
+        f"{prefix}{change.repo} {change.field.value}: "
+        f"{_format_metadata_value(change.current)} -> {_format_metadata_value(change.desired)}"
+    )
+
+
+def _apply_metadata_change(
+    updater: GitHubMetadataUpdater,
+    org: str,
+    change: MetadataChange,
+) -> None:
+    """Apply one metadata change through the GitHub API abstraction."""
+    if change.field is MetadataField.DESCRIPTION:
+        if not isinstance(change.desired, str):
+            raise TypeError("description change must have a string desired value")
+        updater.update_repository_description(org, change.repo, change.desired)
+    elif change.field is MetadataField.TOPICS:
+        if not isinstance(change.desired, tuple):
+            raise TypeError("topic change must have a tuple desired value")
+        updater.replace_repository_topics(org, change.repo, list(change.desired))
+    else:
+        assert_never(change.field)
+
+
+def _format_metadata_value(value: object) -> str:
+    """Format metadata values for CLI display."""
+    if isinstance(value, tuple):
+        return ";".join(str(item) for item in value) if value else "(none)"
+    if value == "":
+        return "(empty)"
+    return str(value)

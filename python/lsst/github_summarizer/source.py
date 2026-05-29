@@ -8,6 +8,7 @@ import subprocess
 import time
 from collections.abc import Callable
 from typing import Any, Protocol
+from urllib.parse import quote
 
 import httpx
 
@@ -16,6 +17,7 @@ from .models import Repository
 __all__ = [
     "GitHubError",
     "GitHubGraphQLSource",
+    "GitHubMetadataUpdater",
     "GitHubSource",
     "resolve_token",
 ]
@@ -44,6 +46,7 @@ query($org: String!, $cursor: String) {
 """
 
 _DEFAULT_BASE_URL = "https://api.github.com/graphql"
+_DEFAULT_REST_BASE_URL = "https://api.github.com"
 _MAX_RETRIES = 5
 # httpx defaults to a 5s timeout, too short for a GraphQL query over a large
 # organization; use a generous default that callers can override.
@@ -59,6 +62,18 @@ class GitHubSource(Protocol):
 
     def fetch_repositories(self, org: str) -> list[Repository]:
         """Return all repositories for the named organization."""
+        ...
+
+
+class GitHubMetadataUpdater(Protocol):
+    """A GitHub client that can update repository metadata."""
+
+    def update_repository_description(self, org: str, repo: str, description: str) -> None:
+        """Update a repository description."""
+        ...
+
+    def replace_repository_topics(self, org: str, repo: str, topics: list[str]) -> None:
+        """Replace all repository topics."""
         ...
 
 
@@ -160,12 +175,14 @@ class GitHubGraphQLSource:
         token: str,
         *,
         base_url: str = _DEFAULT_BASE_URL,
+        rest_base_url: str = _DEFAULT_REST_BASE_URL,
         client: httpx.Client | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._token = token
         self._base_url = base_url
+        self._rest_base_url = rest_base_url.rstrip("/")
         self._client = client or httpx.Client(timeout=timeout)
         self._sleep = sleep
 
@@ -209,6 +226,57 @@ class GitHubGraphQLSource:
                 _LOG.debug("Fetched %d repositories across %d page(s)", len(repos), page)
                 return repos
 
+    def update_repository_description(self, org: str, repo: str, description: str) -> None:
+        """Update a repository description.
+
+        Parameters
+        ----------
+        org : `str`
+            Organization or owner login.
+        repo : `str`
+            Repository name.
+        description : `str`
+            Desired repository description. An empty string clears the
+            description.
+
+        Raises
+        ------
+        GitHubError
+            Raised on transport failure, GitHub errors, or persistent rate
+            limiting.
+        """
+        _LOG.debug("Updating description for %s/%s", org, repo)
+        self._rest_request(
+            "PATCH",
+            f"/repos/{_url_component(org)}/{_url_component(repo)}",
+            json={"description": description},
+        )
+
+    def replace_repository_topics(self, org: str, repo: str, topics: list[str]) -> None:
+        """Replace all repository topics.
+
+        Parameters
+        ----------
+        org : `str`
+            Organization or owner login.
+        repo : `str`
+            Repository name.
+        topics : `list` [`str`]
+            Desired complete topic list.
+
+        Raises
+        ------
+        GitHubError
+            Raised on transport failure, GitHub errors, or persistent rate
+            limiting.
+        """
+        _LOG.debug("Replacing topics for %s/%s", org, repo)
+        self._rest_request(
+            "PUT",
+            f"/repos/{_url_component(org)}/{_url_component(repo)}/topics",
+            json={"names": topics},
+        )
+
     def _post(self, variables: dict[str, str | None], *, page: int = 1) -> dict[str, Any]:
         """POST the query, retrying on rate-limit responses."""
         headers = {"Authorization": f"Bearer {self._token}"}
@@ -245,6 +313,41 @@ class GitHubGraphQLSource:
 
         raise GitHubError("exceeded retry limit due to rate limiting")
 
+    def _rest_request(self, method: str, path: str, *, json: dict[str, Any]) -> None:
+        """Send a REST API request, retrying on rate-limit responses."""
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {self._token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        url = f"{self._rest_base_url}{path}"
+        for attempt in range(_MAX_RETRIES):
+            _LOG.debug("%s %s (attempt %d)", method, url, attempt + 1)
+            started = time.monotonic()
+            try:
+                response = self._client.request(method, url, json=json, headers=headers)
+            except httpx.HTTPError as exc:
+                raise GitHubError(
+                    f"request to GitHub failed: {exc} "
+                    f"(after {time.monotonic() - started:.1f}s; "
+                    f"is the network reachable and the timeout sufficient?)"
+                ) from exc
+
+            elapsed = time.monotonic() - started
+            _LOG.debug("HTTP %d in %.1fs", response.status_code, elapsed)
+
+            if response.status_code == 403 and attempt < _MAX_RETRIES - 1:
+                wait = _retry_after_seconds(response)
+                _LOG.warning("Rate limited (HTTP 403); retrying %s %s in %.0fs", method, path, wait)
+                self._sleep(wait)
+                continue
+
+            if response.status_code < 200 or response.status_code >= 300:
+                raise GitHubError(f"GitHub returned HTTP {response.status_code}: {response.text}")
+            return
+
+        raise GitHubError("exceeded retry limit due to rate limiting")
+
     @staticmethod
     def _parse_node(node: dict[str, Any]) -> Repository:
         """Convert a GraphQL repository node into a `Repository`."""
@@ -273,3 +376,8 @@ def _retry_after_seconds(response: httpx.Response) -> float:
         except ValueError:
             pass
     return 1.0
+
+
+def _url_component(value: str) -> str:
+    """Quote one URL path component."""
+    return quote(value, safe="")
