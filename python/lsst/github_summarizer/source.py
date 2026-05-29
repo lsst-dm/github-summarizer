@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import time
@@ -18,6 +19,8 @@ __all__ = [
     "GitHubSource",
     "resolve_token",
 ]
+
+_LOG = logging.getLogger(__name__)
 
 _GRAPHQL_QUERY = """
 query($org: String!, $cursor: String) {
@@ -42,6 +45,9 @@ query($org: String!, $cursor: String) {
 
 _DEFAULT_BASE_URL = "https://api.github.com/graphql"
 _MAX_RETRIES = 5
+# httpx defaults to a 5s timeout, too short for a GraphQL query over a large
+# organization; use a generous default that callers can override.
+_DEFAULT_TIMEOUT = 30.0
 
 
 class GitHubError(Exception):
@@ -54,10 +60,6 @@ class GitHubSource(Protocol):
     def fetch_repositories(self, org: str) -> list[Repository]:
         """Return all repositories for the named organization."""
         ...
-
-
-def _token_from_env() -> str | None:
-    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or None
 
 
 def _token_from_gh() -> str | None:
@@ -128,16 +130,21 @@ def resolve_token(
         Raised if no token can be found.
     """
     if explicit:
+        _LOG.debug("Using token from explicit --token option")
         return explicit
 
-    env_token = _token_from_env()
-    if env_token:
-        return env_token
+    if os.environ.get("GITHUB_TOKEN"):
+        _LOG.debug("Using token from GITHUB_TOKEN environment variable")
+        return os.environ["GITHUB_TOKEN"]
+    if os.environ.get("GH_TOKEN"):
+        _LOG.debug("Using token from GH_TOKEN environment variable")
+        return os.environ["GH_TOKEN"]
 
     chain = _DEFAULT_RESOLVERS if resolvers is None else resolvers
     for resolver in chain:
         token = resolver()
         if token:
+            _LOG.debug("Using token from %s", getattr(resolver, "__name__", "resolver"))
             return token
 
     raise GitHubError(
@@ -154,11 +161,12 @@ class GitHubGraphQLSource:
         *,
         base_url: str = _DEFAULT_BASE_URL,
         client: httpx.Client | None = None,
+        timeout: float = _DEFAULT_TIMEOUT,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._token = token
         self._base_url = base_url
-        self._client = client or httpx.Client()
+        self._client = client or httpx.Client(timeout=timeout)
         self._sleep = sleep
 
     def fetch_repositories(self, org: str) -> list[Repository]:
@@ -180,31 +188,50 @@ class GitHubGraphQLSource:
             Raised on transport failure, GraphQL errors, or persistent
             rate limiting.
         """
+        _LOG.debug("Fetching repositories for organization %r from %s", org, self._base_url)
         repos: list[Repository] = []
         cursor: str | None = None
+        page = 0
         while True:
-            data = self._post({"org": org, "cursor": cursor})
-            connection = data["organization"]["repositories"]
+            page += 1
+            data = self._post({"org": org, "cursor": cursor}, page=page)
+            organization = data["organization"]
+            if organization is None:
+                raise GitHubError(f"organization {org!r} not found or not accessible")
+            connection = organization["repositories"]
             for node in connection["nodes"]:
                 repos.append(self._parse_node(node))
+            _LOG.debug("Page %d: %d repositories so far", page, len(repos))
             page_info = connection["pageInfo"]
             if page_info["hasNextPage"]:
                 cursor = page_info["endCursor"]
             else:
+                _LOG.debug("Fetched %d repositories across %d page(s)", len(repos), page)
                 return repos
 
-    def _post(self, variables: dict[str, str | None]) -> dict[str, Any]:
+    def _post(self, variables: dict[str, str | None], *, page: int = 1) -> dict[str, Any]:
         """POST the query, retrying on rate-limit responses."""
         headers = {"Authorization": f"Bearer {self._token}"}
         payload = {"query": _GRAPHQL_QUERY, "variables": variables}
         for attempt in range(_MAX_RETRIES):
+            _LOG.debug("POST page %d to %s (attempt %d)", page, self._base_url, attempt + 1)
+            started = time.monotonic()
             try:
                 response = self._client.post(self._base_url, json=payload, headers=headers)
             except httpx.HTTPError as exc:
-                raise GitHubError(f"request to GitHub failed: {exc}") from exc
+                raise GitHubError(
+                    f"request to GitHub failed: {exc} "
+                    f"(after {time.monotonic() - started:.1f}s; "
+                    f"is the network reachable and the timeout sufficient?)"
+                ) from exc
+
+            elapsed = time.monotonic() - started
+            _LOG.debug("HTTP %d in %.1fs", response.status_code, elapsed)
 
             if response.status_code == 403 and attempt < _MAX_RETRIES - 1:
-                self._sleep(_retry_after_seconds(response))
+                wait = _retry_after_seconds(response)
+                _LOG.warning("Rate limited (HTTP 403); retrying page %d in %.0fs", page, wait)
+                self._sleep(wait)
                 continue
 
             if response.status_code != 200:

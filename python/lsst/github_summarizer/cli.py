@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -47,7 +48,18 @@ def main() -> None:
 @click.option("--include-archived", is_flag=True, help="Include archived repos.")
 @click.option("--include-disabled", is_flag=True, help="Include disabled repos.")
 @click.option("--appendix", is_flag=True, help="Append full inventory (markdown).")
-@click.option("--verbose", is_flag=True, help="Show full tracebacks on error.")
+@click.option(
+    "--timeout",
+    type=float,
+    default=30.0,
+    show_default=True,
+    help="HTTP timeout in seconds per request.",
+)
+@click.option(
+    "--verbose",
+    is_flag=True,
+    help="Enable debug logging and show full tracebacks on error.",
+)
 def report(
     config_path: Path,
     org: str | None,
@@ -57,16 +69,21 @@ def report(
     include_archived: bool,
     include_disabled: bool,
     appendix: bool,
+    timeout: float,
     verbose: bool,
 ) -> None:
     """Generate a repository report for the configured organization."""
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.WARNING,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
     try:
         config = load_config(config_path)
         if org:
             config = config.model_copy(update={"org": org})
 
         resolved = resolve_token(token)
-        source = GitHubGraphQLSource(resolved)
+        source = GitHubGraphQLSource(resolved, timeout=timeout)
         now = datetime.now(UTC)
         summaries = build_summaries(
             source,
@@ -74,6 +91,9 @@ def report(
             now=now,
             include_archived=include_archived,
             include_disabled=include_disabled,
+        )
+        logging.getLogger(__name__).info(
+            "Generated report for %d repositories in %r", len(summaries), config.org
         )
 
         if output_format == "json":

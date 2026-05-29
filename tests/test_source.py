@@ -1,5 +1,6 @@
 """Tests for token resolution and the GraphQL source."""
 
+import logging
 from collections.abc import Callable
 
 import httpx
@@ -150,3 +151,66 @@ def test_rate_limit_is_retried() -> None:
     repos = source.fetch_repositories("lsst")
     assert repos == []
     assert calls["n"] == 2
+
+
+def test_timeout_applied_to_default_client() -> None:
+    source = GitHubGraphQLSource("token", timeout=12.5)
+    assert source._client.timeout.read == 12.5
+
+
+def test_default_timeout_is_generous() -> None:
+    # Must be well above httpx's 5s default so large orgs do not time out.
+    source = GitHubGraphQLSource("token")
+    assert source._client.timeout.read is not None
+    assert source._client.timeout.read >= 30.0
+
+
+def test_fetch_logs_progress(caplog: pytest.LogCaptureFixture) -> None:
+    client = httpx.Client(transport=httpx.MockTransport(_paged_handler()))
+    source = GitHubGraphQLSource("token", client=client)
+    with caplog.at_level(logging.DEBUG, logger="lsst.github_summarizer.source"):
+        source.fetch_repositories("lsst")
+    messages = " ".join(record.getMessage() for record in caplog.records)
+    assert "lsst" in messages
+    assert "page" in messages.lower()
+    assert "2" in messages  # total repository count
+
+
+def test_rate_limit_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
+    responses = [
+        httpx.Response(403, headers={"Retry-After": "0"}, json={}),
+        httpx.Response(
+            200,
+            json={
+                "data": {
+                    "organization": {
+                        "repositories": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [],
+                        }
+                    }
+                }
+            },
+        ),
+    ]
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        resp = responses[calls["n"]]
+        calls["n"] += 1
+        return resp
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    source = GitHubGraphQLSource("token", client=client, sleep=lambda _s: None)
+    with caplog.at_level(logging.WARNING, logger="lsst.github_summarizer.source"):
+        source.fetch_repositories("lsst")
+    assert any("rate" in record.getMessage().lower() for record in caplog.records)
+
+
+def test_resolve_token_logs_source(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "env-token")
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    with caplog.at_level(logging.DEBUG, logger="lsst.github_summarizer.source"):
+        resolve_token(None)
+    messages = " ".join(record.getMessage() for record in caplog.records)
+    assert "GITHUB_TOKEN" in messages
