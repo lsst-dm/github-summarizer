@@ -71,6 +71,7 @@ class Config(BaseModel):
 
     org: str
     activity: ActivityConfig = ActivityConfig()
+    ignored_topics: list[str] = []
     groups: list[GroupRule] = []
     overrides: dict[str, Override] = {}
     auto_group_by_topic: AutoGroupConfig = AutoGroupConfig()

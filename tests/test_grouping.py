@@ -72,6 +72,18 @@ def test_fallback_when_no_rule_matches() -> None:
     assert result["random"] == ("Uncategorized", "fallback")
 
 
+def test_ignored_topic_does_not_match_topic_rule() -> None:
+    config = Config(
+        org="lsst",
+        ignored_topics=["hacktoberfest"],
+        groups=[GroupRule(name="Hacktoberfest", topics=["hacktoberfest"])],
+        fallback_group="Uncategorized",
+    )
+    repo = _repo("qserv", topics=["hacktoberfest"])
+    result = Grouper(config).assign([repo])
+    assert result["qserv"] == ("Uncategorized", "fallback")
+
+
 def test_auto_topic_clusters_when_min_repos_met() -> None:
     config = Config(
         org="lsst",
@@ -111,6 +123,18 @@ def test_auto_topic_ignores_listed_topics() -> None:
         fallback_group="Uncategorized",
     )
     repos = [_repo(f"r{i}", topics=["lsst"]) for i in range(5)]
+    result = Grouper(config).assign(repos)
+    assert all(result[r.name] == ("Uncategorized", "fallback") for r in repos)
+
+
+def test_auto_topic_ignores_top_level_ignored_topics() -> None:
+    config = Config(
+        org="lsst",
+        ignored_topics=["hacktoberfest"],
+        auto_group_by_topic=AutoGroupConfig(enabled=True, min_repos=3),
+        fallback_group="Uncategorized",
+    )
+    repos = [_repo(f"r{i}", topics=["hacktoberfest"]) for i in range(5)]
     result = Grouper(config).assign(repos)
     assert all(result[r.name] == ("Uncategorized", "fallback") for r in repos)
 

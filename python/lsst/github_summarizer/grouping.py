@@ -19,6 +19,7 @@ class Grouper:
 
     def __init__(self, config: Config) -> None:
         self._config = config
+        self._ignored_topics = frozenset(config.ignored_topics)
 
     def assign(self, repos: list[Repository]) -> dict[str, Assignment]:
         """Assign every repository to a group.
@@ -68,9 +69,10 @@ class Grouper:
                 if re.search(pattern, repo.name):
                     return (rule.name, f"regex:{pattern}")
 
+        repo_topics = set(repo.topics) - self._ignored_topics
         for rule in config.groups:
             for topic in rule.topics:
-                if topic in repo.topics:
+                if topic in repo_topics:
                     return (rule.name, f"topic:{topic}")
 
         return None
@@ -78,7 +80,8 @@ class Grouper:
     def _assign_auto_topic(self, ungrouped: list[Repository], result: dict[str, Assignment]) -> None:
         """Cluster ungrouped repos by their most-shared topic, greedily."""
         cfg = self._config.auto_group_by_topic
-        ignore = set(cfg.ignore_topics)
+        ignore = set(self._ignored_topics)
+        ignore.update(cfg.ignore_topics)
         pool: dict[str, Repository] = {r.name: r for r in ungrouped}
 
         while True:

@@ -5,6 +5,8 @@ activity:
   warm_days: 180
   quiet_days: 365
 
+ignored_topics: [hacktoberfest]
+
 groups:
   - name: Pipelines
     topics: [pipelines]
