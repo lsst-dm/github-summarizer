@@ -11,11 +11,11 @@ from pathlib import Path
 
 import click
 
-from .cache import CacheError, save_raw
+from .cache import CacheError, RawFileSource, load_raw, save_raw
 from .config import ConfigError, load_config
 from .orchestrator import build_summaries
 from .report import render_csv, render_json, render_markdown
-from .source import GitHubError, GitHubGraphQLSource, resolve_token
+from .source import GitHubError, GitHubGraphQLSource, GitHubSource, resolve_token
 
 __all__ = ["main"]
 
@@ -83,6 +83,13 @@ def main() -> None:
     help="HTTP timeout in seconds per request.",
 )
 @click.option(
+    "--from-raw",
+    "from_raw",
+    type=click.Path(exists=False, dir_okay=False, path_type=Path),
+    default=None,
+    help="Render from a saved raw cache file instead of querying GitHub.",
+)
+@click.option(
     "--verbose",
     is_flag=True,
     help="Enable debug logging and show full tracebacks on error.",
@@ -97,6 +104,7 @@ def report(
     include_disabled: bool,
     appendix: bool,
     timeout: float,
+    from_raw: Path | None,
     verbose: bool,
 ) -> None:
     """Generate a repository report for the configured organization."""
@@ -105,9 +113,12 @@ def report(
         if org:
             config = config.model_copy(update={"org": org})
 
-        resolved = resolve_token(token)
-        source = GitHubGraphQLSource(resolved, timeout=timeout)
         now = datetime.now(UTC)
+        source: GitHubSource
+        if from_raw is not None:
+            source = RawFileSource(load_raw(from_raw))
+        else:
+            source = GitHubGraphQLSource(resolve_token(token), timeout=timeout)
         summaries = build_summaries(
             source,
             config,

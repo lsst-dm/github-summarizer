@@ -1,13 +1,14 @@
 """Tests for the Click CLI wiring."""
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
 from lsst.github_summarizer import cli
-from lsst.github_summarizer.cache import load_raw
+from lsst.github_summarizer.cache import load_raw, save_raw
 from lsst.github_summarizer.models import Repository
 
 
@@ -96,3 +97,37 @@ def test_fetch_requires_output(monkeypatch: pytest.MonkeyPatch, config_file: Pat
     runner = CliRunner()
     result = runner.invoke(cli.main, ["fetch", "--config", str(config_file)])
     assert result.exit_code != 0
+
+
+def test_report_from_raw_is_offline(
+    monkeypatch: pytest.MonkeyPatch, config_file: Path, tmp_path: Path
+) -> None:
+    out = tmp_path / "raw.json"
+    save_raw(
+        out,
+        [Repository(name="afw", url="https://github.com/lsst/afw")],
+        org="lsst",
+        fetched_at=datetime(2026, 6, 1, tzinfo=UTC),
+    )
+
+    def boom(token: str | None) -> str:
+        raise AssertionError("resolve_token must not be called with --from-raw")
+
+    monkeypatch.setattr(cli, "resolve_token", boom)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.main,
+        ["report", "--config", str(config_file), "--from-raw", str(out), "--format", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["repositories"][0]["repo"]["name"] == "afw"
+
+
+def test_report_from_raw_corrupt_exits_nonzero(config_file: Path, tmp_path: Path) -> None:
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["report", "--config", str(config_file), "--from-raw", str(bad)])
+    assert result.exit_code != 0
+    assert "error:" in result.output
