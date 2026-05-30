@@ -174,6 +174,7 @@ def render_markdown(
         ActivityStatus.WARM,
         ActivityStatus.QUIET,
         ActivityStatus.DORMANT,
+        ActivityStatus.ABANDONED,
     ]
     if include_archived:
         reported.append(ActivityStatus.ARCHIVED)

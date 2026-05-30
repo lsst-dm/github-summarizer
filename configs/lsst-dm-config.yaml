@@ -4,6 +4,7 @@ activity:
   active_days: 90
   warm_days: 180
   quiet_days: 365
+  abandoned_days: 1825
 
 ignored_topics: [hacktoberfest]
 

@@ -17,6 +17,7 @@ def test_load_minimal_config_applies_defaults(tmp_path: Path) -> None:
     assert config.activity.active_days == 90
     assert config.activity.warm_days == 180
     assert config.activity.quiet_days == 365
+    assert config.activity.abandoned_days == 5 * 365
     assert config.fallback_group == "Uncategorized"
     assert config.ignored_topics == []
     assert config.auto_group_by_topic.enabled is True

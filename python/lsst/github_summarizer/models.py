@@ -17,6 +17,7 @@ class ActivityStatus(StrEnum):
     WARM = "warm"
     QUIET = "quiet"
     DORMANT = "dormant"
+    ABANDONED = "abandoned"
     ARCHIVED = "archived"
     DISABLED = "disabled"
 

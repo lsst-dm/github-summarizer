@@ -45,6 +45,8 @@ def classify_activity(repo: Repository, cfg: ActivityConfig, *, now: datetime) -
         return ActivityStatus.WARM
     if age_days <= cfg.quiet_days:
         return ActivityStatus.QUIET
+    if age_days > cfg.abandoned_days:
+        return ActivityStatus.ABANDONED
     return ActivityStatus.DORMANT
 
 

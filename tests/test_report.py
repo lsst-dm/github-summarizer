@@ -42,6 +42,7 @@ def _summaries() -> list[RepositorySummary]:
     return [
         _summary("afw", "Pipelines", ActivityStatus.ACTIVE, ["pipelines"]),
         _summary("old-thing", "Uncategorized", ActivityStatus.DORMANT),
+        _summary("ancient", "Uncategorized", ActivityStatus.ABANDONED),
     ]
 
 
@@ -49,10 +50,11 @@ def test_render_json_has_summary_and_repos() -> None:
     output = render_json(_summaries(), _config(), GENERATED)
     data = json.loads(output)
     assert data["org"] == "lsst"
-    assert data["summary"]["total"] == 2
+    assert data["summary"]["total"] == 3
     assert data["summary"]["active"] == 1
     assert data["summary"]["dormant"] == 1
-    assert {r["repo"]["name"] for r in data["repositories"]} == {"afw", "old-thing"}
+    assert data["summary"]["abandoned"] == 1
+    assert {r["repo"]["name"] for r in data["repositories"]} == {"afw", "old-thing", "ancient"}
 
 
 def test_render_csv_flattens_repo_fields() -> None:
@@ -68,8 +70,9 @@ def test_render_csv_flattens_repo_fields() -> None:
 def test_render_markdown_has_title_summary_and_groups() -> None:
     output = render_markdown(_summaries(), _config(), GENERATED)
     assert "# GitHub Repository Report: lsst" in output
-    assert "Total repositories: 2" in output
+    assert "Total repositories: 3" in output
     assert "Active: 1" in output
+    assert "Abandoned: 1" in output
     assert "Activity date" in output
     assert "## Pipelines" in output
     assert "Coordinated pipelines" in output

@@ -29,6 +29,7 @@ class ActivityConfig(BaseModel):
     active_days: int = 90
     warm_days: int = 180
     quiet_days: int = 365
+    abandoned_days: int = 5 * 365
 
 
 class GroupRule(BaseModel):

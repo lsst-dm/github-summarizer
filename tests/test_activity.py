@@ -46,6 +46,16 @@ def test_dormant_beyond_quiet_threshold() -> None:
     assert classify_activity(repo, CFG, now=NOW) is ActivityStatus.DORMANT
 
 
+def test_abandoned_beyond_five_year_threshold() -> None:
+    repo = _repo(pushed_at=NOW - timedelta(days=(5 * 365) + 1))
+    assert classify_activity(repo, CFG, now=NOW) is ActivityStatus.ABANDONED
+
+
+def test_exactly_five_years_is_still_dormant() -> None:
+    repo = _repo(pushed_at=NOW - timedelta(days=5 * 365))
+    assert classify_activity(repo, CFG, now=NOW) is ActivityStatus.DORMANT
+
+
 def test_no_push_date_is_dormant() -> None:
     repo = _repo(pushed_at=None)
     assert classify_activity(repo, CFG, now=NOW) is ActivityStatus.DORMANT
@@ -69,7 +79,7 @@ def test_isolated_recent_commit_uses_previous_commit_for_activity() -> None:
         recent_commit_dates=[workflow_update, previous_work],
     )
     assert activity_timestamp(repo, CFG) == previous_work
-    assert classify_activity(repo, CFG, now=now) is ActivityStatus.DORMANT
+    assert classify_activity(repo, CFG, now=now) is ActivityStatus.ABANDONED
 
 
 def test_nearby_recent_commits_keep_newest_activity_timestamp() -> None:
