@@ -15,6 +15,8 @@ def test_repository_defaults() -> None:
     assert repo.topics == []
     assert repo.is_archived is False
     assert repo.pushed_at is None
+    assert repo.default_branch_commit_count is None
+    assert repo.recent_commit_dates == []
 
 
 def test_repository_parses_pushed_at_from_iso_string() -> None:
@@ -24,6 +26,15 @@ def test_repository_parses_pushed_at_from_iso_string() -> None:
         pushed_at="2026-01-02T03:04:05Z",
     )
     assert repo.pushed_at == datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+
+
+def test_repository_parses_recent_commit_dates_from_iso_strings() -> None:
+    repo = Repository(
+        name="example",
+        url="https://example",
+        recent_commit_dates=["2026-01-02T03:04:05Z"],
+    )
+    assert repo.recent_commit_dates == [datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)]
 
 
 def test_repository_summary_requires_derived_fields() -> None:

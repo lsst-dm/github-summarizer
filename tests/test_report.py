@@ -25,6 +25,7 @@ def _summary(
             pushed_at=datetime(2026, 1, 1, tzinfo=UTC),
         ),
         activity=activity,
+        activity_at=datetime(2026, 1, 1, tzinfo=UTC),
         group=group,
         grouping_reason="fallback",
     )
@@ -60,6 +61,7 @@ def test_render_csv_flattens_repo_fields() -> None:
     assert rows[0]["name"] == "afw"
     assert rows[0]["topics"] == "pipelines"
     assert rows[0]["activity"] == "active"
+    assert rows[0]["activity_at"] == "2026-01-01T00:00:00+00:00"
     assert rows[0]["group"] == "Pipelines"
 
 
@@ -68,6 +70,7 @@ def test_render_markdown_has_title_summary_and_groups() -> None:
     assert "# GitHub Repository Report: lsst" in output
     assert "Total repositories: 2" in output
     assert "Active: 1" in output
+    assert "Activity date" in output
     assert "## Pipelines" in output
     assert "Coordinated pipelines" in output
     assert "## Uncategorized" in output

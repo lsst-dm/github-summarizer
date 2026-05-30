@@ -33,6 +33,8 @@ class Repository(BaseModel):
     is_archived: bool = False
     is_disabled: bool = False
     default_branch: str | None = None
+    default_branch_commit_count: int | None = None
+    recent_commit_dates: list[datetime] = []
 
 
 class RepositorySummary(BaseModel):
@@ -40,5 +42,6 @@ class RepositorySummary(BaseModel):
 
     repo: Repository
     activity: ActivityStatus
+    activity_at: datetime | None = None
     group: str
     grouping_reason: str

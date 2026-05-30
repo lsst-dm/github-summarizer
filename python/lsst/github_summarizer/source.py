@@ -25,9 +25,9 @@ __all__ = [
 _LOG = logging.getLogger(__name__)
 
 _GRAPHQL_QUERY = """
-query($org: String!, $cursor: String) {
+query($org: String!, $cursor: String, $repositoryCount: Int!, $historyCount: Int!) {
   organization(login: $org) {
-    repositories(first: 100, after: $cursor) {
+    repositories(first: $repositoryCount, after: $cursor) {
       pageInfo { hasNextPage endCursor }
       nodes {
         name
@@ -38,7 +38,17 @@ query($org: String!, $cursor: String) {
         primaryLanguage { name }
         pushedAt
         repositoryTopics(first: 50) { nodes { topic { name } } }
-        defaultBranchRef { name }
+        defaultBranchRef {
+          name
+          target {
+            ... on Commit {
+              history(first: $historyCount) {
+                totalCount
+                nodes { committedDate }
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -47,6 +57,8 @@ query($org: String!, $cursor: String) {
 
 _DEFAULT_BASE_URL = "https://api.github.com/graphql"
 _DEFAULT_REST_BASE_URL = "https://api.github.com"
+_DEFAULT_REPOSITORY_PAGE_SIZE = 25
+_DEFAULT_COMMIT_HISTORY_COUNT = 50
 _MAX_RETRIES = 5
 # httpx defaults to a 5s timeout, too short for a GraphQL query over a large
 # organization; use a generous default that callers can override.
@@ -178,12 +190,20 @@ class GitHubGraphQLSource:
         rest_base_url: str = _DEFAULT_REST_BASE_URL,
         client: httpx.Client | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
+        repository_page_size: int = _DEFAULT_REPOSITORY_PAGE_SIZE,
+        commit_history_count: int = _DEFAULT_COMMIT_HISTORY_COUNT,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        if repository_page_size < 1 or repository_page_size > 100:
+            raise ValueError("repository_page_size must be between 1 and 100")
+        if commit_history_count < 1 or commit_history_count > 100:
+            raise ValueError("commit_history_count must be between 1 and 100")
         self._token = token
         self._base_url = base_url
         self._rest_base_url = rest_base_url.rstrip("/")
         self._client = client or httpx.Client(timeout=timeout)
+        self._repository_page_size = repository_page_size
+        self._commit_history_count = commit_history_count
         self._sleep = sleep
 
     def fetch_repositories(self, org: str) -> list[Repository]:
@@ -211,7 +231,15 @@ class GitHubGraphQLSource:
         page = 0
         while True:
             page += 1
-            data = self._post({"org": org, "cursor": cursor}, page=page)
+            data = self._post(
+                {
+                    "org": org,
+                    "cursor": cursor,
+                    "repositoryCount": self._repository_page_size,
+                    "historyCount": self._commit_history_count,
+                },
+                page=page,
+            )
             organization = data["organization"]
             if organization is None:
                 raise GitHubError(f"organization {org!r} not found or not accessible")
@@ -277,8 +305,8 @@ class GitHubGraphQLSource:
             json={"names": topics},
         )
 
-    def _post(self, variables: dict[str, str | None], *, page: int = 1) -> dict[str, Any]:
-        """POST the query, retrying on rate-limit responses."""
+    def _post(self, variables: dict[str, Any], *, page: int = 1) -> dict[str, Any]:
+        """POST the query, retrying on rate-limit and transient responses."""
         headers = {"Authorization": f"Bearer {self._token}"}
         payload = {"query": _GRAPHQL_QUERY, "variables": variables}
         for attempt in range(_MAX_RETRIES):
@@ -296,9 +324,16 @@ class GitHubGraphQLSource:
             elapsed = time.monotonic() - started
             _LOG.debug("HTTP %d in %.1fs", response.status_code, elapsed)
 
-            if response.status_code == 403 and attempt < _MAX_RETRIES - 1:
+            if _is_retryable_graphql_response(response) and attempt < _MAX_RETRIES - 1:
                 wait = _retry_after_seconds(response)
-                _LOG.warning("Rate limited (HTTP 403); retrying page %d in %.0fs", page, wait)
+                reason = "rate limit" if response.status_code == 403 else "transient failure"
+                _LOG.warning(
+                    "GitHub returned HTTP %d (%s); retrying page %d in %.0fs",
+                    response.status_code,
+                    reason,
+                    page,
+                    wait,
+                )
                 self._sleep(wait)
                 continue
 
@@ -311,7 +346,7 @@ class GitHubGraphQLSource:
             data: dict[str, Any] = body["data"]
             return data
 
-        raise GitHubError("exceeded retry limit due to rate limiting")
+        raise GitHubError("exceeded retry limit due to retryable GitHub responses")
 
     def _rest_request(self, method: str, path: str, *, json: dict[str, Any]) -> None:
         """Send a REST API request, retrying on rate-limit responses."""
@@ -353,6 +388,8 @@ class GitHubGraphQLSource:
         """Convert a GraphQL repository node into a `Repository`."""
         language = node.get("primaryLanguage")
         branch = node.get("defaultBranchRef")
+        target = branch.get("target") if branch else None
+        history = target.get("history") if target else None
         topics = [entry["topic"]["name"] for entry in node["repositoryTopics"]["nodes"]]
         return Repository(
             name=node["name"],
@@ -364,6 +401,8 @@ class GitHubGraphQLSource:
             is_archived=node["isArchived"],
             is_disabled=node["isDisabled"],
             default_branch=branch["name"] if branch else None,
+            default_branch_commit_count=history["totalCount"] if history else None,
+            recent_commit_dates=[entry["committedDate"] for entry in history["nodes"]] if history else [],
         )
 
 
@@ -376,6 +415,11 @@ def _retry_after_seconds(response: httpx.Response) -> float:
         except ValueError:
             pass
     return 1.0
+
+
+def _is_retryable_graphql_response(response: httpx.Response) -> bool:
+    """Return whether a GraphQL HTTP response should be retried."""
+    return response.status_code == 403 or response.status_code in {502, 503, 504}
 
 
 def _url_component(value: str) -> str:

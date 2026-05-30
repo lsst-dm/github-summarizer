@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from .activity import classify_activity
+from .activity import activity_timestamp, classify_activity
 from .config import Config
 from .grouping import Grouper
 from .models import RepositorySummary
@@ -61,6 +61,7 @@ def build_summaries(
             RepositorySummary(
                 repo=repo,
                 activity=classify_activity(repo, config.activity, now=now),
+                activity_at=activity_timestamp(repo, config.activity),
                 group=group,
                 grouping_reason=reason,
             )

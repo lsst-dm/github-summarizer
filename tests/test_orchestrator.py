@@ -66,5 +66,6 @@ def test_summaries_carry_activity_and_group() -> None:
     source = FakeSource([Repository(name="live", url="https://x", pushed_at=NOW)])
     summaries = build_summaries(source, _config(), now=NOW)
     assert summaries[0].activity is ActivityStatus.ACTIVE
+    assert summaries[0].activity_at == NOW
     assert summaries[0].group == "Uncategorized"
     assert summaries[0].grouping_reason == "fallback"

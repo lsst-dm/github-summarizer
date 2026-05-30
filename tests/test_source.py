@@ -1,5 +1,6 @@
 """Tests for token resolution and the GraphQL source."""
 
+import json
 import logging
 from collections.abc import Callable
 
@@ -60,7 +61,18 @@ def _paged_handler() -> Callable[[httpx.Request], httpx.Response]:
                                 "primaryLanguage": {"name": "C++"},
                                 "pushedAt": "2026-01-01T00:00:00Z",
                                 "repositoryTopics": {"nodes": [{"topic": {"name": "pipelines"}}]},
-                                "defaultBranchRef": {"name": "main"},
+                                "defaultBranchRef": {
+                                    "name": "main",
+                                    "target": {
+                                        "history": {
+                                            "totalCount": 2,
+                                            "nodes": [
+                                                {"committedDate": "2026-01-01T00:00:00Z"},
+                                                {"committedDate": "2025-12-01T00:00:00Z"},
+                                            ],
+                                        }
+                                    },
+                                },
                             }
                         ],
                     }
@@ -108,6 +120,8 @@ def test_fetch_repositories_paginates() -> None:
     assert repos[0].primary_language == "C++"
     assert repos[0].topics == ["pipelines"]
     assert repos[0].default_branch == "main"
+    assert repos[0].default_branch_commit_count == 2
+    assert len(repos[0].recent_commit_dates) == 2
     assert repos[1].primary_language is None
     assert repos[1].pushed_at is None
 
@@ -163,6 +177,80 @@ def test_default_timeout_is_generous() -> None:
     source = GitHubGraphQLSource("token")
     assert source._client.timeout.read is not None
     assert source._client.timeout.read >= 30.0
+
+
+def test_custom_repository_page_size_and_commit_history_count_are_sent() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.read().decode())
+        seen["repository_count"] = payload["variables"]["repositoryCount"]
+        seen["history_count"] = payload["variables"]["historyCount"]
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "organization": {
+                        "repositories": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [],
+                        }
+                    }
+                }
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    source = GitHubGraphQLSource(
+        "token",
+        client=client,
+        repository_page_size=11,
+        commit_history_count=12,
+    )
+    source.fetch_repositories("lsst")
+    assert seen["repository_count"] == 11
+    assert seen["history_count"] == 12
+
+
+def test_invalid_repository_page_size_raises() -> None:
+    with pytest.raises(ValueError):
+        GitHubGraphQLSource("token", repository_page_size=0)
+
+
+def test_invalid_commit_history_count_raises() -> None:
+    with pytest.raises(ValueError):
+        GitHubGraphQLSource("token", commit_history_count=0)
+
+
+def test_transient_graphql_server_error_is_retried() -> None:
+    responses = [
+        httpx.Response(502, text="<html>bad gateway</html>"),
+        httpx.Response(
+            200,
+            json={
+                "data": {
+                    "organization": {
+                        "repositories": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [],
+                        }
+                    }
+                }
+            },
+        ),
+    ]
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        resp = responses[calls["n"]]
+        calls["n"] += 1
+        return resp
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    source = GitHubGraphQLSource("token", client=client, sleep=lambda _s: None)
+    repos = source.fetch_repositories("lsst")
+    assert repos == []
+    assert calls["n"] == 2
 
 
 def test_fetch_logs_progress(caplog: pytest.LogCaptureFixture) -> None:

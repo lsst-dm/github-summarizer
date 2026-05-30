@@ -19,6 +19,7 @@ _CSV_COLUMNS = [
     "primary_language",
     "topics",
     "pushed_at",
+    "activity_at",
     "is_archived",
     "is_disabled",
     "default_branch",
@@ -28,9 +29,10 @@ _CSV_COLUMNS = [
 ]
 
 _TABLE_HEADER = (
-    "| Repo | Description | Language | Topics | Last push | Activity | Archived | Disabled | Reason |"
+    "| Repo | Description | Language | Topics | Last push | Activity date | "
+    "Activity | Archived | Disabled | Reason |"
 )
-_TABLE_DIVIDER = "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+_TABLE_DIVIDER = "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
 
 
 def _summary_counts(summaries: list[RepositorySummary]) -> dict[ActivityStatus, int]:
@@ -100,6 +102,7 @@ def render_csv(summaries: list[RepositorySummary], config: Config, generated_at:
                 repo.primary_language or "",
                 ";".join(repo.topics),
                 repo.pushed_at.isoformat() if repo.pushed_at else "",
+                summary.activity_at.isoformat() if summary.activity_at else "",
                 repo.is_archived,
                 repo.is_disabled,
                 repo.default_branch or "",
@@ -217,12 +220,14 @@ def _render_table(lines: list[str], summaries: list[RepositorySummary]) -> None:
     for summary in sorted(summaries, key=lambda s: s.repo.name.lower()):
         repo = summary.repo
         last_push = repo.pushed_at.date().isoformat() if repo.pushed_at else ""
+        activity_date = summary.activity_at.date().isoformat() if summary.activity_at else ""
         lines.append(
             f"| [{repo.name}]({repo.url}) "
             f"| {repo.description or ''} "
             f"| {repo.primary_language or ''} "
             f"| {', '.join(repo.topics)} "
             f"| {last_push} "
+            f"| {activity_date} "
             f"| {summary.activity.value} "
             f"| {'yes' if repo.is_archived else 'no'} "
             f"| {'yes' if repo.is_disabled else 'no'} "
