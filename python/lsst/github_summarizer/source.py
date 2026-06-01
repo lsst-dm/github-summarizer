@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json as json_lib
 import logging
 import os
 import subprocess
@@ -353,6 +354,7 @@ class GitHubGraphQLSource:
         headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {self._token}",
+            "Content-Type": "application/json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
         url = f"{self._rest_base_url}{path}"
@@ -360,7 +362,8 @@ class GitHubGraphQLSource:
             _LOG.debug("%s %s (attempt %d)", method, url, attempt + 1)
             started = time.monotonic()
             try:
-                response = self._client.request(method, url, json=json, headers=headers)
+                body = json_lib.dumps(json, separators=(",", ":"))
+                response = self._client.request(method, url, content=body, headers=headers)
             except httpx.HTTPError as exc:
                 raise GitHubError(
                     f"request to GitHub failed: {exc} "
