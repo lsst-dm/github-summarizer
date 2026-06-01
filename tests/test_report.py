@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 
 from lsst.github_summarizer.config import Config, GroupRule
 from lsst.github_summarizer.models import ActivityStatus, Repository, RepositorySummary
-from lsst.github_summarizer.report import render_csv, render_json, render_markdown
+from lsst.github_summarizer.report import render_csv, render_json, render_markdown, render_typst
 
 GENERATED = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 
@@ -74,6 +74,13 @@ def test_render_markdown_has_title_summary_and_groups() -> None:
     assert "Active: 1" in output
     assert "Abandoned: 1" in output
     assert "Activity date" in output
+    assert (
+        "| Repo | Description | Language | Topics | Last push | Activity date | Activity | Reason |" in output
+    )
+    assert (
+        "| Repo | Description | Language | Topics | Last push | Activity date | Activity | Archived |"
+        not in output
+    )
     assert "## Pipelines" in output
     assert "Coordinated pipelines" in output
     assert "## Uncategorized" in output
@@ -109,6 +116,19 @@ def test_render_markdown_shows_archived_disabled_counts_when_included() -> None:
     )
     assert "Archived:" in output
     assert "Disabled:" in output
+    assert (
+        "| Repo | Description | Language | Topics | Last push | Activity date | "
+        "Activity | Archived | Disabled | Reason |"
+    ) in output
+
+
+def test_render_markdown_can_show_one_state_column() -> None:
+    output = render_markdown(_summaries(), _config(), GENERATED, include_archived=True)
+    assert (
+        "| Repo | Description | Language | Topics | Last push | Activity date | "
+        "Activity | Archived | Reason |"
+    ) in output
+    assert "Disabled |" not in output
 
 
 def test_render_markdown_sorts_repos_case_insensitively() -> None:
@@ -130,3 +150,47 @@ def test_render_markdown_shows_fetched_line_when_provided() -> None:
     output = render_markdown(_summaries(), _config(), GENERATED, fetched_at=fetched)
     assert "Data fetched" in output
     assert fetched.isoformat() in output
+
+
+def test_render_typst_has_landscape_layout_summary_and_groups() -> None:
+    output = render_typst(_summaries(), _config(), GENERATED)
+    assert '#set page(paper: "us-letter", flipped: true' in output
+    assert "#set text(size: 8pt)" in output
+    assert "columns: (1.15in, 2.4fr, 0.70in, 0.8fr" in output
+    assert "= GitHub Repository Report: lsst" in output
+    assert "== Summary" in output
+    assert "- Total repositories: 3" in output
+    assert "== Pipelines" in output
+    assert "[Archived]" not in output
+    assert "[Disabled]" not in output
+    assert '#link("https://github.com/lsst/afw")[afw]' in output
+
+
+def test_render_typst_shows_archived_disabled_columns_when_included() -> None:
+    output = render_typst(_summaries(), _config(), GENERATED, include_archived=True, include_disabled=True)
+    assert "columns: (1.15in, 2.4fr, 0.70in, 0.8fr" in output
+    assert "[Archived], [Disabled]" in output
+    assert "align: (left, left, left, left, left, left, left, center, center, left)" in output
+
+
+def test_render_typst_escapes_markup_text() -> None:
+    summary = RepositorySummary(
+        repo=Repository(
+            name="repo_#1",
+            url="https://github.com/lsst/repo_1",
+            description="uses [brackets] and *stars*",
+            primary_language="C++",
+            topics=["topic_with_underscore"],
+            pushed_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        activity=ActivityStatus.ACTIVE,
+        activity_at=datetime(2026, 1, 1, tzinfo=UTC),
+        group="Group [One]",
+        grouping_reason="glob:repo_*",
+    )
+    output = render_typst([summary], _config(), GENERATED)
+    assert "repo\\_\\#1" in output
+    assert "uses \\[brackets\\] and \\*stars\\*" in output
+    assert "topic\\_with\\_underscore" in output
+    assert "== Group \\[One\\]" in output
+    assert "glob:repo\\_\\*" in output

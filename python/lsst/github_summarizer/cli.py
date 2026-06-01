@@ -22,12 +22,22 @@ from .metadata import (
     plan_metadata_updates,
 )
 from .orchestrator import build_summaries
-from .report import render_csv, render_json, render_markdown
+from .report import render_csv, render_json, render_markdown, render_typst
 from .source import GitHubError, GitHubGraphQLSource, GitHubMetadataUpdater, GitHubSource, resolve_token
 
 __all__ = ["main"]
 
 _LOG = logging.getLogger(__name__)
+
+_REPORT_FORMATS = ("markdown", "csv", "json", "typst")
+_REPORT_FORMATS_BY_EXTENSION = {
+    ".csv": "csv",
+    ".json": "json",
+    ".md": "markdown",
+    ".markdown": "markdown",
+    ".typ": "typst",
+    ".typst": "typst",
+}
 
 
 @contextmanager
@@ -53,8 +63,11 @@ def _cli_context(verbose: bool) -> Iterator[None]:
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
-def main() -> None:
+def _main() -> None:
     """Summarize the repositories in a GitHub organization."""
+
+
+main = _main
 
 
 @main.command()
@@ -70,9 +83,9 @@ def main() -> None:
 @click.option(
     "--format",
     "output_format",
-    type=click.Choice(["markdown", "csv", "json"]),
-    default="markdown",
-    help="Output format.",
+    type=click.Choice(_REPORT_FORMATS),
+    default=None,
+    help="Output format. Defaults to output filename extension, or markdown for stdout.",
 )
 @click.option(
     "--output",
@@ -106,7 +119,7 @@ def report(
     config_path: Path,
     org: str | None,
     token: str | None,
-    output_format: str,
+    output_format: str | None,
     output: Path | None,
     include_archived: bool,
     include_disabled: bool,
@@ -120,6 +133,7 @@ def report(
         config = load_config(config_path)
         if org:
             config = config.model_copy(update={"org": org})
+        resolved_format = _resolve_report_format(output_format, output)
 
         now = datetime.now(UTC)
         source: GitHubSource
@@ -139,10 +153,20 @@ def report(
         )
         _LOG.info("Generated report for %d repositories in %r", len(summaries), config.org)
 
-        if output_format == "json":
+        if resolved_format == "json":
             text = render_json(summaries, config, now)
-        elif output_format == "csv":
+        elif resolved_format == "csv":
             text = render_csv(summaries, config, now)
+        elif resolved_format == "typst":
+            text = render_typst(
+                summaries,
+                config,
+                now,
+                fetched_at=fetched_at,
+                include_archived=include_archived,
+                include_disabled=include_disabled,
+                include_appendix=appendix,
+            )
         else:
             text = render_markdown(
                 summaries,
@@ -158,6 +182,21 @@ def report(
             output.write_text(text)
         else:
             click.echo(text, nl=False)
+
+
+def _resolve_report_format(output_format: str | None, output: Path | None) -> str:
+    """Resolve the report format from an explicit option or output path."""
+    if output_format is not None:
+        return output_format
+    if output is None:
+        return "markdown"
+    try:
+        return _REPORT_FORMATS_BY_EXTENSION[output.suffix.lower()]
+    except KeyError as exc:
+        supported = ", ".join(sorted(_REPORT_FORMATS_BY_EXTENSION))
+        raise click.UsageError(
+            f"could not infer output format from {output}; use --format or one of: {supported}"
+        ) from exc
 
 
 @main.command("apply-metadata")

@@ -63,6 +63,37 @@ def test_report_writes_to_output_file(
     assert "# GitHub Repository Report: lsst" in out.read_text()
 
 
+def test_report_infers_json_format_from_output_file(
+    monkeypatch: pytest.MonkeyPatch, config_file: Path, tmp_path: Path
+) -> None:
+    _patch_backend(monkeypatch, [Repository(name="afw", url="https://github.com/lsst/afw")])
+    out = tmp_path / "report.json"
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["report", "--config", str(config_file), "--output", str(out)])
+    assert result.exit_code == 0, result.output
+    data = json.loads(out.read_text())
+    assert data["repositories"][0]["repo"]["name"] == "afw"
+
+
+def test_report_infers_typst_format_from_output_file(
+    monkeypatch: pytest.MonkeyPatch, config_file: Path, tmp_path: Path
+) -> None:
+    _patch_backend(monkeypatch, [Repository(name="afw", url="https://github.com/lsst/afw")])
+    out = tmp_path / "report.typ"
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["report", "--config", str(config_file), "--output", str(out)])
+    assert result.exit_code == 0, result.output
+    assert '#set page(paper: "us-letter", flipped: true' in out.read_text()
+
+
+def test_report_requires_format_for_unknown_output_extension(config_file: Path, tmp_path: Path) -> None:
+    out = tmp_path / "report.txt"
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["report", "--config", str(config_file), "--output", str(out)])
+    assert result.exit_code != 0
+    assert "could not infer output format" in result.output
+
+
 def test_org_flag_overrides_config(monkeypatch: pytest.MonkeyPatch, config_file: Path) -> None:
     seen: dict[str, str] = {}
 
