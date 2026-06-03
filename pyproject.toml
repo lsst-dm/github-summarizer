@@ -1,0 +1,203 @@
+[build-system]
+requires = ["setuptools", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lsst-github-summarizer"
+requires-python = ">=3.13.0"
+description = "Summarize repositories of a GitHub org."
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+readme = "README.md"
+authors = [
+    {name="Rubin Observatory Data Management", email="dm-admin@lists.lsst.org"},
+]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+keywords=["lsst"]
+dependencies = [
+    "httpx",
+    "pydantic",
+    "pyyaml",
+    "click",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "types-pyyaml",
+]
+
+[project.scripts]
+github-summarizer = "lsst.github_summarizer.cli:main"
+
+[project.urls]
+"Homepage" = "https://github.com/lsst-dm/github-summarizer"
+"Source" = "https://github.com/lsst-dm/github-summarizer"
+
+[tool.setuptools.packages.find]
+where = ["python"]
+
+[tool.setuptools.package-data]
+"lsst.github_summarizer" = ["py.typed"]
+
+[tool.towncrier]
+    package = "lsst.github_summarizer"
+    package_dir = "python"
+    filename = "doc/lsst.github_summarizer/CHANGES.rst"
+    directory = "doc/changes"
+    title_format = "lsst-github-summarizer {version} ({project_date})"
+    issue_format = "`{issue} <https://rubinobs.atlassian.net/browse/{issue}>`_"
+
+
+    [[tool.towncrier.type]]
+        directory = "feature"
+        name = "New Features"
+        showcontent = true
+
+    [[tool.towncrier.type]]
+        directory = "api"
+        name = "API Changes"
+        showcontent = true
+
+    [[tool.towncrier.type]]
+        directory = "bugfix"
+        name = "Bug Fixes"
+        showcontent = true
+
+    [[tool.towncrier.type]]
+        directory = "perf"
+        name = "Performance Enhancement"
+        showcontent = true
+
+    [[tool.towncrier.type]]
+        directory = "misc"
+        name = "Miscellaneous Changes of Minor Interest"
+        showcontent = true
+
+    [[tool.towncrier.type]]
+        directory = "removal"
+        name = "An API Removal or Deprecation"
+        showcontent = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pydocstyle]
+convention = "numpy"
+# Our coding style does not require docstrings for magic methods (D105)
+# Our docstyle documents __init__ at the class level (D107)
+# We allow methods to inherit docstrings and this is not compatible with D102.
+# Docstring at the very first line is not required
+# D200, D205 and D400 all complain if the first sentence of the docstring does
+# not fit on one line.
+add-ignore = ["D107", "D105", "D102", "D100", "D200", "D205", "D400"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    'if "sphinx" in sys.modules:',
+    'if "sphinx" in sys.modules and not TYPE_CHECKING:',
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"
+exclude = [
+    "__init__.py",
+]
+
+[tool.ruff.lint]
+ignore = [
+    "N802",
+    "N803",
+    "N806",
+    "N812",
+    "N815",
+    "N816",
+    "N999",
+    "D107",
+    "D105",
+    "D102",
+    "D104",
+    "D100",
+    "D200",
+    "D205",
+    "D400",
+]
+select = [
+    "E",  # pycodestyle
+    "F",  # pyflakes
+    "N",  # pep8-naming
+    "W",  # pycodestyle
+    "D",  # pydocstyle
+    "I",  # isort
+    "C4",  # comprehensions
+    "UP",  # pyupgrade
+    "RUF022",  # sort __all__
+]
+extend-select = [
+    "RUF100", # Warn about unused noqa
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lsst", "astshim", "starlink"]
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 79
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 79
+
+[tool.numpydoc_validation]
+checks = [
+    "all",  # All except the rules listed below.
+    "SA01",  # See Also section.
+    "EX01",  # Example section.
+    "SS06",  # Summary can go into second line.
+    "GL01",  # Summary text can start on same line as """
+    "GL08",  # Do not require docstring.
+    "ES01",  # No extended summary required.
+    "RT01",  # Unfortunately our @property trigger this.
+    "RT02",  # Does not want named return value. DM style says we do.
+    "SS05",  # pydocstyle is better at finding infinitive verb.
+    "GL03",  # ruff format of docstrings disagrees.
+]
+exclude = [
+    "^test_.*",  # Do not test docstrings in test code.
+    '^__init__$',
+    '\._[a-zA-Z_]+$',  # Private methods.
+]
+
+[tool.mypy]
+warn_unused_configs = true
+warn_redundant_casts = true
+plugins = "pydantic.mypy"
+
+[[tool.mypy.overrides]]
+module = ["lsst.github_summarizer"]
+ignore_missing_imports = false
+ignore_errors = false
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+strict_equality = true
+warn_unreachable = true
+warn_unused_ignores = true

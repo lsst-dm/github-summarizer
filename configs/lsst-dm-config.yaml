@@ -1,0 +1,30 @@
+org: lsst-dm
+
+activity:
+  active_days: 90
+  warm_days: 180
+  quiet_days: 365
+  abandoned_days: 1825
+
+ignored_topics: [hacktoberfest]
+
+groups:
+  - name: Pipelines
+    topics: [pipelines]
+    description: LSST Science Pipelines
+  - name: Data Management Tech Notes
+    glob: ["DMTN-*"]
+  - name: Data Management Test Reports
+    glob: ["DMTR-*"]
+  - name: Documentation
+    topics: [documentation, docs]
+
+auto_group_by_topic:
+  enabled: true
+  min_repos: 3
+  ignore_topics: []
+
+overrides:
+  special-repo-name:
+    group: Pipelines
+    notes: Manual override

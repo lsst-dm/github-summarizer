@@ -1,0 +1,51 @@
+org: lsst
+
+activity:
+  active_days: 90
+  warm_days: 180
+  quiet_days: 365
+  abandoned_days: 1825
+
+ignored_topics: [hacktoberfest]
+
+groups:
+  - name: Pipelines
+    topics: [pipelines]
+    description: LSST Science Pipelines
+  - name: Pipeline Middleware
+    topics: [pipeline-middleware]
+    description: Software that the pipelines depend on to access data and execute.
+  - name: Rubin Tech Notes
+    glob: ["RTN-*"]
+  - name: Camera Tech Notes
+    glob: ["CTN-*"]
+  - name: Statements of Work
+    glob: ["dm-sow-*", "sp-sow-*", "*_sow"]
+  - name: lsst.io Web Sites
+    glob: ["*_lsst_io", "*.lsst.io"]
+    topics: [website]
+  - name: Data Management Construction Change Controlled Documents
+    glob: ["LDM-*"]
+  - name: Construction System Engineering Change Controlled Documents
+    glob: ["LSE-*"]
+  - name: Rubin Operations Change Controlled Documents
+    glob: ["RDO-*"]
+  - name: Test Data Packages for Pipelines
+    glob: ["testdata_*"]
+    topics: [testdata]
+  - name: CI Packages for Pipelines
+    glob: ["ci_*"]
+    topics: [pipelines-ci]
+  - name: Documentation
+    topics: [documentation, docs]
+    glob: ["LPM-*"]
+
+auto_group_by_topic:
+  enabled: true
+  min_repos: 2
+  ignore_topics: []
+
+overrides:
+  special-repo-name:
+    group: Pipelines
+    notes: Manual override
